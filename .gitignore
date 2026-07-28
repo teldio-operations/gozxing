@@ -10,3 +10,6 @@
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+
+# Stacked barcode images that oned/multiple_reader_test.go builds when it runs
+/oned/testdata-multiple/*.png
