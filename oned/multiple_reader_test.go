@@ -3,15 +3,20 @@ package oned
 // This file tests that a reader reports every barcode in an image, not just the first one.
 //
 // It builds the images it needs from the single-barcode images in testdata. For each reader it
-// reads every image of one testdata directory on its own, keeps the ones that hold a single
-// barcode with a text no earlier image already gave, and draws them down one tall canvas. It
-// then reads that canvas back and expects one result per barcode, from the top down.
+// reads every image of one testdata directory on its own and keeps the ones that hold a single
+// barcode with a text no earlier image already gave. It then lays those out and reads them back:
 //
-// The canvas goes to testdata-multiple/ so that a failure is easy to look at. Those files are
-// build output, not fixtures, and .gitignore covers them. Nothing reads them back, so deleting
-// the directory is safe.
+//   - a column, where every row of the canvas crosses one barcode
+//   - a square of four, where every row crosses two, so the reader has to carry on along a row
+//     after it has read a barcode from it
+//   - both of those at all four right angles
+//
+// A canvas goes to testdata-multiple/ so that a failure is easy to look at. Those files are build
+// output, not fixtures, and .gitignore covers them. Nothing reads them back, so deleting the
+// directory is safe.
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -81,10 +86,7 @@ func TestOneDReaderMultipleBarcodes(t *testing.T) {
 				t.Fatalf("Decode of the %v stack failed: %v", set.name, e)
 			}
 
-			wants := make([]string, len(sources))
-			for i, s := range sources {
-				wants[i] = s.text
-			}
+			wants := textsOf(sources)
 			got := make([]string, len(results))
 			for i, result := range results {
 				got[i] = result.GetText()
@@ -140,10 +142,7 @@ func TestOneDReaderGridOfBarcodes(t *testing.T) {
 				t.Fatalf("Decode of the %v square failed: %v", set.name, e)
 			}
 
-			wants := make([]string, len(sources))
-			for i, s := range sources {
-				wants[i] = s.text
-			}
+			wants := textsOf(sources)
 			got := make([]string, len(results))
 			for i, result := range results {
 				got[i] = result.GetText()
@@ -183,6 +182,94 @@ func TestOneDReaderGridOfBarcodes(t *testing.T) {
 	if grids == 0 {
 		t.Fatal("no directory held four images that can share a canvas, so nothing was tested")
 	}
+}
+
+// TestOneDReaderRotatedLayouts reads a column and a square of barcodes at all four right angles.
+//
+// A reader scans rows, so a canvas turned on its side holds no barcode along any row of it.
+// Decode recovers by turning the image a quarter turn and scanning again, which is what the
+// TRY_HARDER hint asks it to do, and it reads a row backwards to cope with a canvas turned
+// upside down. Between them those two cover all four angles, and every barcode still reads.
+func TestOneDReaderRotatedLayouts(t *testing.T) {
+	harder := map[gozxing.DecodeHintType]interface{}{gozxing.DecodeHintType_TRY_HARDER: true}
+
+	for _, set := range multipleSets {
+		t.Run(set.name, func(t *testing.T) {
+			dir := filepath.Join("testdata", set.dir)
+			sources := pickStack(readEachAlone(t, dir, set.reader, nil))
+			if len(sources) < 2 {
+				t.Skipf("%v has %v images that can share a canvas, need 2", dir, len(sources))
+			}
+
+			layouts := []struct {
+				name   string
+				canvas image.Image
+				wants  []string
+			}{{"column", stackDown(t, dir, sources), textsOf(sources)}}
+			if len(sources) >= 4 {
+				layouts = append(layouts, struct {
+					name   string
+					canvas image.Image
+					wants  []string
+				}{"square", stackSquare(t, dir, sources[:4]), textsOf(sources[:4])})
+			}
+
+			// 0 degrees is what the other tests read, so start at a quarter turn.
+			for _, layout := range layouts {
+				for _, turns := range []int{1, 2, 3} {
+					name := fmt.Sprintf("%v/%v", layout.name, turns*90)
+					bmp, e := gozxing.NewBinaryBitmapFromImage(turnQuarter(layout.canvas, turns))
+					if e != nil {
+						t.Fatalf("%v: NewBinaryBitmapFromImage failed: %v", name, e)
+					}
+					results, e := set.reader().Decode(bmp, harder)
+					if e != nil {
+						t.Fatalf("Decode of the %v %v failed: %v", set.name, name, e)
+					}
+					got := make([]string, len(results))
+					for i, result := range results {
+						got[i] = result.GetText()
+					}
+					for _, want := range layout.wants {
+						if !contains(got, want) {
+							t.Fatalf("Decode of the %v %v = %q, misses %q",
+								set.name, name, got, want)
+						}
+					}
+					for _, text := range got {
+						if !contains(layout.wants, text) {
+							t.Fatalf("Decode of the %v %v read %q, which no source holds",
+								set.name, name, text)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+func textsOf(sources []multipleSource) []string {
+	texts := make([]string, len(sources))
+	for i, s := range sources {
+		texts[i] = s.text
+	}
+	return texts
+}
+
+// turnQuarter turns an image a quarter turn clockwise, the given number of times.
+func turnQuarter(src image.Image, turns int) image.Image {
+	out := src
+	for i := 0; i < turns; i++ {
+		bounds := out.Bounds()
+		turned := image.NewRGBA(image.Rect(0, 0, bounds.Dy(), bounds.Dx()))
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				turned.Set(bounds.Max.Y-1-y, x-bounds.Min.X, out.At(x, y))
+			}
+		}
+		out = turned
+	}
+	return out
 }
 
 // TestOneDReaderSingleBarcodePerImage reads every image of testdata and expects at most one
