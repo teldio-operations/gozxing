@@ -20,10 +20,39 @@ type QRCodeMultiReader struct {
 	*qrcode.QRCodeReader
 }
 
+var (
+	_ multi.MultipleBarcodeReader = &QRCodeMultiReader{}
+	_ gozxing.Reader              = &QRCodeMultiReader{}
+)
+
 func NewQRCodeMultiReader() multi.MultipleBarcodeReader {
 	return &QRCodeMultiReader{
 		qrcode.NewQRCodeReader().(*qrcode.QRCodeReader),
 	}
+}
+
+// Decode reads every QR code in the image.
+//
+// The embedded QRCodeReader reads one QR code, because its detector locates one symbol. This
+// reader has a detector that locates all of them, so Decode reports all of them and matches
+// DecodeMultiple. A caller holding this as a gozxing.Reader gets every QR code, not the first.
+func (this *QRCodeMultiReader) Decode(image *gozxing.BinaryBitmap,
+	hints map[gozxing.DecodeHintType]interface{}) ([]*gozxing.Result, error) {
+
+	results, e := this.DecodeMultiple(image, hints)
+	if e != nil {
+		return nil, e
+	}
+	// DecodeMultiple reports an empty list when the detector found symbols that none of the
+	// decoders could read. Reader.Decode has to fail in that case.
+	if len(results) == 0 {
+		return nil, gozxing.NewNotFoundException()
+	}
+	return results, nil
+}
+
+func (this *QRCodeMultiReader) DecodeWithoutHints(image *gozxing.BinaryBitmap) ([]*gozxing.Result, error) {
+	return this.Decode(image, nil)
 }
 
 func (this *QRCodeMultiReader) DecodeMultipleWithoutHint(image *gozxing.BinaryBitmap) ([]*gozxing.Result, error) {

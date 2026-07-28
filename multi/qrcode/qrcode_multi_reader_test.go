@@ -206,3 +206,49 @@ func TestQRCodeMultiReader_DecodeMultipleWithoutHint(t *testing.T) {
 		}
 	}
 }
+
+// TestQRCodeMultiReader_DecodeReportsEveryCode checks the gozxing.Reader entry points. They used
+// to come from the embedded QRCodeReader, which reads one QR code, so a caller holding this
+// reader as a gozxing.Reader saw one of the four codes in testdata/1.png.
+func TestQRCodeMultiReader_DecodeReportsEveryCode(t *testing.T) {
+	var reader gozxing.Reader = NewQRCodeMultiReader().(*QRCodeMultiReader)
+
+	// testdata/1.png holds four QR codes. See TestQRCodeMultiReader_DecodeMultipleWithoutHint.
+	wants := 4
+
+	for _, decode := range []struct {
+		name string
+		call func(*gozxing.BinaryBitmap) ([]*gozxing.Result, error)
+	}{
+		{"Decode", func(bmp *gozxing.BinaryBitmap) ([]*gozxing.Result, error) {
+			return reader.Decode(bmp, nil)
+		}},
+		{"DecodeWithoutHints", reader.DecodeWithoutHints},
+	} {
+		t.Run(decode.name, func(t *testing.T) {
+			results, e := decode.call(testutil.NewBinaryBitmapFromFile("testdata/1.png"))
+			if e != nil {
+				t.Fatalf("%v returns error: %v", decode.name, e)
+			}
+			if n := len(results); n != wants {
+				texts := make([]string, n)
+				for i, r := range results {
+					texts[i] = r.GetText()
+				}
+				t.Fatalf("%v found %v QR codes, wants %v: %q", decode.name, n, wants, texts)
+			}
+			for i, r := range results {
+				if format := r.GetBarcodeFormat(); format != gozxing.BarcodeFormat_QR_CODE {
+					t.Fatalf("%v results[%v] format = %v, wants QR_CODE", decode.name, i, format)
+				}
+			}
+		})
+	}
+
+	// An image with no QR code has to fail, the way every other Reader does.
+	blank, _ := gozxing.NewSquareBitMatrix(50)
+	_, e := reader.Decode(testutil.NewBinaryBitmapFromBitMatrix(blank), nil)
+	if _, ok := e.(gozxing.NotFoundException); !ok {
+		t.Fatalf("Decode of a blank image = %T, wants NotFoundException", e)
+	}
+}
