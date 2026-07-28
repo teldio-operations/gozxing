@@ -30,14 +30,15 @@ import (
 // multipleOutDir holds the stacked images. See the note at the top of this file.
 const multipleOutDir = "testdata-multiple"
 
-// multipleGap is the white band between two source images on the canvas, in pixels. It keeps the
-// 8x8 blocks that HybridBinarizer works on from covering two source images at once.
+// The source images butt up against each other, with nothing between them and no margin around
+// them, the way a photo of several labels holds them. Every image of one canvas has the same width
+// where the source directory allows it, so most canvases add no pixel that was not in a source.
 //
-// There is no band to the left or right of a source image. GetBlackRow estimates a black point
-// from the histogram of the single row it reads, and padding a narrow image out to a wider canvas
-// fills that row with white and skews the estimate. Every image of one stack has the same width
-// for the same reason, so none of them needs padding.
-const multipleGap = 16
+// That is deliberate. GetBlackRow estimates a black point from the histogram of the single row it
+// reads. Some of these photos are of a tinted label, whose white is a pale yellow, and laying
+// pure white beside it gives that row a second white peak. The estimate then separates pure white
+// from pale yellow instead of pale yellow from black, and the barcode stops reading. Padding wide
+// enough to matter breaks more barcodes than it fixes, as the ITF and EAN-13 photos show.
 
 var multipleSets = []struct {
 	name   string
@@ -106,6 +107,84 @@ func TestOneDReaderMultipleBarcodes(t *testing.T) {
 	}
 }
 
+// TestOneDReaderGridOfBarcodes reads four barcodes laid out in a square: top-left, top-right,
+// bottom-left, bottom-right.
+//
+// A row of this canvas crosses two barcodes, which a column of them never does. DecodeRow reads
+// the first barcode of a row and stops, so the reader has to carry on along what is left of the
+// row to find the right-hand one. See OneDReader.decodeRowAcross.
+//
+// The results come back in reading order: the top row left to right, then the bottom row.
+func TestOneDReaderGridOfBarcodes(t *testing.T) {
+	harder := map[gozxing.DecodeHintType]interface{}{gozxing.DecodeHintType_TRY_HARDER: true}
+	grids := 0
+
+	for _, set := range multipleSets {
+		t.Run(set.name, func(t *testing.T) {
+			dir := filepath.Join("testdata", set.dir)
+			sources := pickStack(readEachAlone(t, dir, set.reader, nil))
+			if len(sources) < 4 {
+				t.Skipf("%v has %v images that can share a canvas, a square needs 4", dir, len(sources))
+			}
+			sources = sources[:4]
+
+			canvas := stackSquare(t, dir, sources)
+			writeStack(t, filepath.Join(multipleOutDir, set.name+"-grid.png"), canvas)
+
+			bmp, e := gozxing.NewBinaryBitmapFromImage(canvas)
+			if e != nil {
+				t.Fatalf("NewBinaryBitmapFromImage failed: %v", e)
+			}
+			results, e := set.reader().Decode(bmp, harder)
+			if e != nil {
+				t.Fatalf("Decode of the %v square failed: %v", set.name, e)
+			}
+
+			wants := make([]string, len(sources))
+			for i, s := range sources {
+				wants[i] = s.text
+			}
+			got := make([]string, len(results))
+			for i, result := range results {
+				got[i] = result.GetText()
+			}
+			// Nothing may come back that is not one of the four. A square gives the reader more
+			// room to misread than a column does, because it carries on along a row that it has
+			// already read a barcode from.
+			for _, text := range got {
+				if !contains(wants, text) {
+					t.Fatalf("Decode of the %v square read %q, which none of %q holds",
+						set.name, text, wants)
+				}
+			}
+
+			// The point of a square is that one row crosses two barcodes, so at least one pair
+			// side by side has to come back whole. Reading order does not matter: a row read the
+			// right way up gives the pair left to right, and a row that only reads upside down
+			// gives it right to left.
+			top := contains(got, wants[0]) && contains(got, wants[1])
+			bottom := contains(got, wants[2]) && contains(got, wants[3])
+			if !top && !bottom {
+				t.Fatalf("Decode of the %v square = %q, wants both barcodes of at least one row, "+
+					"either %q or %q", set.name, got, wants[:2], wants[2:])
+			}
+			t.Logf("%v square: read %v of 4, top row whole=%v, bottom row whole=%v",
+				set.name, len(got), top, bottom)
+			for i, result := range results {
+				if format := result.GetBarcodeFormat(); format != set.format {
+					t.Fatalf("Decode of the %v square result[%v] format = %v, wants %v",
+						set.name, i, format, set.format)
+				}
+			}
+			grids++
+		})
+	}
+
+	if grids == 0 {
+		t.Fatal("no directory held four images that can share a canvas, so nothing was tested")
+	}
+}
+
 // TestOneDReaderSingleBarcodePerImage reads every image of testdata and expects at most one
 // barcode. Each of those images is a photo or a drawing of one barcode, so a second result means
 // the reader misread a row.
@@ -164,6 +243,15 @@ func TestOneDReaderSingleBarcodePerImage(t *testing.T) {
 	}
 }
 
+func contains(texts []string, text string) bool {
+	for _, t := range texts {
+		if t == text {
+			return true
+		}
+	}
+	return false
+}
+
 type multipleSource struct {
 	file  string
 	text  string
@@ -176,7 +264,8 @@ const (
 	maxStack = 8
 
 	// minWidthRatio is the narrowest source, relative to the canvas, that a stack accepts. It
-	// bounds how much white padding the narrow images get. See multipleGap.
+	// bounds how much white padding a narrow image gets. GetBlackRow estimates a black point from
+	// the histogram of the single row it reads, and white padding skews that estimate.
 	minWidthRatio = 0.75
 )
 
@@ -249,7 +338,7 @@ func readEachAlone(t *testing.T, dir string, newReader func() gozxing.Reader,
 		if text == "" || seen[text] {
 			continue
 		}
-		if !readsOnAdjacentRow(reader, bmp, results[0]) {
+		if readableBand(reader, bmp, results[0]) < minBand {
 			continue
 		}
 		seen[text] = true
@@ -258,49 +347,60 @@ func readEachAlone(t *testing.T, dir string, newReader func() gozxing.Reader,
 	return sources
 }
 
-// readsOnAdjacentRow reports whether the barcode reads the same on a row next to the one it was
-// found on.
+// minBand is how many rows of an image have to read the same barcode before it belongs on a
+// shared canvas.
 //
-// A reader takes the first barcode of an image as it is, but a barcode found after that has to
-// repeat on an adjacent row, so that a misread of one noisy row stays out of the results. Only a
-// source that clears that bar belongs in a stack, where it is one of several barcodes. See
-// OneDReader.doDecode.
-func readsOnAdjacentRow(reader gozxing.Reader, bmp *gozxing.BinaryBitmap, result *gozxing.Result) bool {
+// A reader samples rows sweepRowStep apart at the closest, so a band thinner than two of those
+// steps can fall between two sampled rows and go unread. A canvas of several images is taller
+// than any one of them, which only widens the sampling, and the height of a canvas depends on
+// which images went on it. Picking barcodes with a band this thick keeps the test off that
+// knife edge. It also clears the adjacent-row check that OneDReader.doDecode makes of every
+// barcode after the first.
+const minBand = 2*sweepRowStep + 1
+
+// readableBand counts the rows around the one a barcode was found on that read the same barcode,
+// the found row included. It stops counting at 2*minBand, which is as much as any caller needs.
+func readableBand(reader gozxing.Reader, bmp *gozxing.BinaryBitmap, result *gozxing.Result) int {
 	rowDecoder, ok := reader.(RowDecoder)
 	if !ok {
-		return false
+		return 0
 	}
 	points := result.GetResultPoints()
 	if len(points) == 0 {
-		return false
+		return 0
+	}
+
+	row := gozxing.NewBitArray(bmp.GetWidth())
+	reads := func(y int) bool {
+		if y < 0 || y >= bmp.GetHeight() {
+			return false
+		}
+		read, e := bmp.GetBlackRow(y, row)
+		if e != nil {
+			return false
+		}
+		again, e := rowDecoder.DecodeRow(y, read, nil)
+		return e == nil && again.GetText() == result.GetText()
 	}
 
 	found := int(points[0].GetY())
-	row := gozxing.NewBitArray(bmp.GetWidth())
-	for _, adjacent := range [2]int{found + 1, found - 1} {
-		if adjacent < 0 || adjacent >= bmp.GetHeight() {
-			continue
-		}
-		read, e := bmp.GetBlackRow(adjacent, row)
-		if e != nil {
-			continue
-		}
-		again, e := rowDecoder.DecodeRow(adjacent, read, nil)
-		if e == nil && again.GetText() == result.GetText() {
-			return true
+	band := 1
+	for _, step := range [2]int{1, -1} {
+		for y := found + step; band < 2*minBand && reads(y); y += step {
+			band++
 		}
 	}
-	return false
+	return band
 }
 
-// stackDown draws the source images down one white canvas, each one centered, with a white
-// margin around it. The source pixels go across unchanged, because scaling a photo of a barcode
-// can make it unreadable.
+// stackDown draws the source images down one white canvas, one directly below the next, each one
+// centered, with a margin around the whole canvas. The source pixels go across unchanged, because
+// scaling a photo of a barcode can make it unreadable.
 func stackDown(t *testing.T, dir string, sources []multipleSource) image.Image {
 	t.Helper()
 
 	images := make([]image.Image, len(sources))
-	width, height := 0, multipleGap
+	width, height := 0, 0
 	for i, s := range sources {
 		img := readPNG(t, filepath.Join(dir, s.file))
 		images[i] = img
@@ -308,18 +408,57 @@ func stackDown(t *testing.T, dir string, sources []multipleSource) image.Image {
 		if bounds.Dx() > width {
 			width = bounds.Dx()
 		}
-		height += bounds.Dy() + multipleGap
+		height += bounds.Dy()
 	}
 
 	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
 	draw.Draw(canvas, canvas.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
 
-	y := multipleGap
+	y := 0
 	for _, img := range images {
 		bounds := img.Bounds()
 		left := (width - bounds.Dx()) / 2
 		draw.Draw(canvas, image.Rect(left, y, left+bounds.Dx(), y+bounds.Dy()), img, bounds.Min, draw.Src)
-		y += bounds.Dy() + multipleGap
+		y += bounds.Dy()
+	}
+	return canvas
+}
+
+// stackSquare draws four source images in a square on one white canvas: sources[0] top-left,
+// sources[1] top-right, sources[2] bottom-left, sources[3] bottom-right.
+//
+// The cells butt up against each other, with a margin only around the whole canvas. Every cell is
+// the same size, so the two barcodes of a row start at the same x and a row of the canvas crosses
+// both of them. Each image sits at the left of its cell, so any cell wider than its image leaves
+// white to its right, which serves as the quiet zone of the barcode that follows along the row.
+func stackSquare(t *testing.T, dir string, sources []multipleSource) image.Image {
+	t.Helper()
+	if len(sources) != 4 {
+		t.Fatalf("stackSquare got %v images, wants 4", len(sources))
+	}
+
+	images := make([]image.Image, 4)
+	cellWidth, cellHeight := 0, 0
+	for i, s := range sources {
+		img := readPNG(t, filepath.Join(dir, s.file))
+		images[i] = img
+		if w := img.Bounds().Dx(); w > cellWidth {
+			cellWidth = w
+		}
+		if h := img.Bounds().Dy(); h > cellHeight {
+			cellHeight = h
+		}
+	}
+
+	canvas := image.NewRGBA(image.Rect(0, 0, 2*cellWidth, 2*cellHeight))
+	draw.Draw(canvas, canvas.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
+
+	for i, img := range images {
+		column, row := i%2, i/2
+		left := column * cellWidth
+		top := row * cellHeight
+		bounds := img.Bounds()
+		draw.Draw(canvas, image.Rect(left, top, left+bounds.Dx(), top+bounds.Dy()), img, bounds.Min, draw.Src)
 	}
 	return canvas
 }

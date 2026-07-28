@@ -152,6 +152,111 @@ func scanRows(height int, tryHarder bool) []int {
 	return rows
 }
 
+// decodeRowAcross reads the barcodes that sit next to each other along one row, left to right.
+//
+// DecodeRow reads the first barcode of the row it is given and stops there, so this hands it what
+// is left of the row past the end of that barcode, and repeats. That is what reads the second
+// column of a grid of barcodes, where one row crosses two of them.
+//
+// The x of every result is in the coordinates of the whole row.
+func (this *OneDReader) decodeRowAcross(rowNumber int, row *gozxing.BitArray,
+	hints map[gozxing.DecodeHintType]interface{}) ([]*gozxing.Result, error) {
+
+	results := make([]*gozxing.Result, 0, 1)
+	remainder := row
+	offset := 0
+
+	for {
+		result, e := this.DecodeRow(rowNumber, remainder, hints)
+		if e != nil {
+			if _, ok := e.(gozxing.ReaderException); !ok {
+				return nil, e
+			}
+			return results, nil // nothing more on this row
+		}
+
+		// Measure the barcode before moving its points, because rightmostX reads them.
+		end := rightmostX(result)
+		shiftX(result, float64(offset))
+		results = append(results, result)
+
+		// A barcode with no width to it leaves nowhere to carry on from.
+		if end <= 0 {
+			return results, nil
+		}
+		offset += end
+		if offset >= row.GetSize() {
+			return results, nil
+		}
+		remainder = bitArrayFrom(row, offset)
+
+		// The callback reports points of the whole image, and this scan works on part of a row,
+		// so drop it rather than report an x that belongs to nothing.
+		hints = withoutResultPointCallback(hints)
+	}
+}
+
+// rightmostX returns the x just past the right edge of a barcode. The result points of a 1D
+// barcode mark its start and its end, though some readers put them at the middle of the guard
+// pattern rather than at its outer edge, so what is left of the row can still hold the tail of
+// the barcode. A reader looks for a start pattern anywhere in the row it is given, so it steps
+// over that tail.
+func rightmostX(result *gozxing.Result) int {
+	points := result.GetResultPoints()
+	rightmost := 0
+	for _, point := range points {
+		if point == nil {
+			continue
+		}
+		x := int(math.Ceil(float64(point.GetX())))
+		if x > rightmost {
+			rightmost = x
+		}
+	}
+	return rightmost
+}
+
+// shiftX moves the result points of a barcode read from part of a row back to where they belong
+// in the whole row.
+func shiftX(result *gozxing.Result, by float64) {
+	if by == 0 {
+		return
+	}
+	points := result.GetResultPoints()
+	for i, point := range points {
+		if point == nil {
+			continue
+		}
+		points[i] = gozxing.NewResultPoint(point.GetX()+by, point.GetY())
+	}
+}
+
+// bitArrayFrom copies what is left of a row from offset onward, one run of black at a time.
+func bitArrayFrom(row *gozxing.BitArray, offset int) *gozxing.BitArray {
+	size := row.GetSize()
+	remainder := gozxing.NewBitArray(size - offset)
+	for start := row.GetNextSet(offset); start < size; {
+		end := row.GetNextUnset(start)
+		remainder.SetRange(start-offset, end-offset)
+		start = row.GetNextSet(end)
+	}
+	return remainder
+}
+
+// withoutResultPointCallback returns the hints without the result point callback.
+func withoutResultPointCallback(hints map[gozxing.DecodeHintType]interface{}) map[gozxing.DecodeHintType]interface{} {
+	if _, ok := hints[gozxing.DecodeHintType_NEED_RESULT_POINT_CALLBACK]; !ok {
+		return hints
+	}
+	kept := make(map[gozxing.DecodeHintType]interface{}, len(hints))
+	for k, v := range hints {
+		if k != gozxing.DecodeHintType_NEED_RESULT_POINT_CALLBACK {
+			kept[k] = v
+		}
+	}
+	return kept
+}
+
 // doDecode scans the rows that scanRows lists and collects every barcode they decode to.
 //
 // @param image The image to decode
@@ -191,50 +296,45 @@ func (this *OneDReader) doDecode(
 				// since we want to avoid drawing the wrong points after flipping the row, and,
 				// don't want to clutter with noise from every single row scan -- just the scans
 				// that start on the center line.
-				if _, ok := hints[gozxing.DecodeHintType_NEED_RESULT_POINT_CALLBACK]; ok {
-					newHints := make(map[gozxing.DecodeHintType]interface{})
-					for k, v := range hints {
-						if k != gozxing.DecodeHintType_NEED_RESULT_POINT_CALLBACK {
-							newHints[k] = v
-						}
-					}
-					hints = newHints
-				}
+				hints = withoutResultPointCallback(hints)
 			}
 
-			// Look for a barcode
-			result, e := this.DecodeRow(rowNumber, row, hints)
+			// Look for the barcodes along the row
+			rowFound, e := this.decodeRowAcross(rowNumber, row, hints)
 			if e != nil {
-				if _, ok := e.(gozxing.ReaderException); !ok {
-					return nil, e
-				}
+				return nil, e
+			}
+			if len(rowFound) == 0 {
 				continue // just couldn't decode this row
 			}
 
-			if attempt == 1 {
-				// We found our barcode, but it was upside down, so note that
-				result.PutMetadata(gozxing.ResultMetadataType_ORIENTATION, 180)
-				// And remember to flip the result points horizontally.
-				points := result.GetResultPoints()
-				if len(points) >= 2 {
-					w := float64(width)
-					points[0] = gozxing.NewResultPoint(w-points[0].GetX()-1, points[0].GetY())
-					points[1] = gozxing.NewResultPoint(w-points[1].GetX()-1, points[1].GetY())
+			for _, result := range rowFound {
+				if attempt == 1 {
+					// We found our barcode, but it was upside down, so note that
+					result.PutMetadata(gozxing.ResultMetadataType_ORIENTATION, 180)
+					// And remember to flip the result points horizontally.
+					points := result.GetResultPoints()
+					if len(points) >= 2 {
+						w := float64(width)
+						points[0] = gozxing.NewResultPoint(w-points[0].GetX()-1, points[0].GetY())
+						points[1] = gozxing.NewResultPoint(w-points[1].GetX()-1, points[1].GetY())
+					}
 				}
-			}
 
-			// The first barcode found is the one the reader would have returned before it could
-			// return several, so take it as it is. Every barcode after it has to repeat on an
-			// adjacent row, which is what keeps a lucky misread of a noisy row out of the results.
-			key := resultKey{result.GetBarcodeFormat(), result.GetText()}
-			if !found[key] {
+				// The first barcode found is the one the reader would have returned before it could
+				// return several, so take it as it is. Every barcode after it has to repeat on an
+				// adjacent row, which keeps a lucky misread of one noisy row out of the results.
+				key := resultKey{result.GetBarcodeFormat(), result.GetText()}
+				if found[key] {
+					continue
+				}
 				if len(rowResults) == 0 ||
 					this.repeatsOnAdjacentRow(image, rowNumber, attempt == 1, key, hints, adjacentRow) {
 					found[key] = true
 					rowResults = append(rowResults, rowResult{rowNumber, result})
 				}
 			}
-			// The reversed row holds the same barcode, so stop here and move to the next row.
+			// The reversed row holds the same barcodes, so stop here and move to the next row.
 			break
 		}
 	}
@@ -257,6 +357,9 @@ func (this *OneDReader) doDecode(
 // A barcode is many pixels tall, so a row next to it reads the same. A blurred or noisy row
 // sometimes decodes to something that passes its checksum by luck, and that misread does not
 // repeat on the row beside it.
+//
+// It reads the whole of the adjacent row, not only its first barcode, because the barcode to
+// confirm may be the second one along the row.
 func (this *OneDReader) repeatsOnAdjacentRow(image *gozxing.BinaryBitmap, rowNumber int, reversed bool,
 	key resultKey, hints map[gozxing.DecodeHintType]interface{}, row *gozxing.BitArray) bool {
 
@@ -272,12 +375,14 @@ func (this *OneDReader) repeatsOnAdjacentRow(image *gozxing.BinaryBitmap, rowNum
 		if reversed {
 			read.Reverse()
 		}
-		result, e := this.DecodeRow(neighbor, read, hints)
+		results, e := this.decodeRowAcross(neighbor, read, hints)
 		if e != nil {
 			continue
 		}
-		if (resultKey{result.GetBarcodeFormat(), result.GetText()}) == key {
-			return true
+		for _, result := range results {
+			if (resultKey{result.GetBarcodeFormat(), result.GetText()}) == key {
+				return true
+			}
 		}
 	}
 	return false
