@@ -3,18 +3,17 @@ package detector
 import (
 	"github.com/teldio-operations/gozxing"
 	"github.com/teldio-operations/gozxing/common"
-	"github.com/teldio-operations/gozxing/qrcode/detector"
 )
 
 // MultiDetector Encapsulates logic that can detect one or more QR Codes in an image,
 // even if the QR Code is rotated or skewed, or partially obscured.
 type MultiDetector struct {
-	*detector.Detector
+	*Detector
 }
 
 func NewMultiDetector(image *gozxing.BitMatrix) *MultiDetector {
 	return &MultiDetector{
-		detector.NewDetector(image),
+		NewDetector(image),
 	}
 }
 

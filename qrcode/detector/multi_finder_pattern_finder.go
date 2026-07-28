@@ -5,7 +5,6 @@ import (
 	"sort"
 
 	"github.com/teldio-operations/gozxing"
-	"github.com/teldio-operations/gozxing/qrcode/detector"
 )
 
 // This class attempts to find finder patterns in a QR Code.
@@ -17,9 +16,8 @@ import (
 // QR code locations in the image.
 //
 // Use the TRY_HARDER hint to ask for a more thorough detection.
-//
 type MultiFinderPatternFinder struct {
-	*detector.FinderPatternFinder
+	*FinderPatternFinder
 }
 
 // private static final FinderPatternInfo[] EMPTY_RESULT_ARRAY = new FinderPatternInfo[0];
@@ -46,7 +44,7 @@ const (
 )
 
 // ModuleSizeComparator A comparator that orders FinderPatterns by their estimated module size.
-func ModuleSizeComparator(possibleCenters []*detector.FinderPattern) func(int, int) bool {
+func ModuleSizeComparator(possibleCenters []*FinderPattern) func(int, int) bool {
 	return func(i, j int) bool {
 		center1 := possibleCenters[i]
 		center2 := possibleCenters[j]
@@ -58,19 +56,20 @@ func ModuleSizeComparator(possibleCenters []*detector.FinderPattern) func(int, i
 // NewMultiFinderPatternFinder Creates a finder that will search the image for three finder patterns.
 //
 // @param image image to search
-//
 func NewMultiFinderPatternFinder(image *gozxing.BitMatrix, resultPointCallback gozxing.ResultPointCallback) *MultiFinderPatternFinder {
 	return &MultiFinderPatternFinder{
-		detector.NewFinderPatternFinder(image, resultPointCallback),
+		NewFinderPatternFinder(image, resultPointCallback),
 	}
 }
 
 // selectMultipleBestPatterns select the best patterns.
 // @return the 3 best {@link FinderPattern}s from our list of candidates. The "best" are
-//         those that have been detected at least 2 times, and whose module
-//         size differs from the average among those patterns the least
+//
+//	those that have been detected at least 2 times, and whose module
+//	size differs from the average among those patterns the least
+//
 // @throws NotFoundException if 3 such finder patterns do not exist
-func (this *MultiFinderPatternFinder) selectMultipleBestPatterns() ([][]*detector.FinderPattern, error) {
+func (this *MultiFinderPatternFinder) selectMultipleBestPatterns() ([][]*FinderPattern, error) {
 	possibleCenters := this.GetPossibleCenters()
 	size := len(possibleCenters)
 
@@ -81,7 +80,7 @@ func (this *MultiFinderPatternFinder) selectMultipleBestPatterns() ([][]*detecto
 
 	// Begin HE modifications to safely detect multiple codes of equal size
 	if size == 3 {
-		return [][]*detector.FinderPattern{
+		return [][]*FinderPattern{
 			{
 				possibleCenters[0],
 				possibleCenters[1],
@@ -106,7 +105,7 @@ func (this *MultiFinderPatternFinder) selectMultipleBestPatterns() ([][]*detecto
 	// a QR code, or are just by chance laid out so it looks like there might be a QR code there.
 	// So, if the layout seems right, lets have the decoder try to decode.
 
-	results := make([][]*detector.FinderPattern, 0) // holder for the results
+	results := make([][]*FinderPattern, 0) // holder for the results
 
 	for i1 := 0; i1 < (size - 2); i1++ {
 		p1 := possibleCenters[i1]
@@ -147,12 +146,12 @@ func (this *MultiFinderPatternFinder) selectMultipleBestPatterns() ([][]*detecto
 				}
 
 				bl, tl, tr := gozxing.ResultPoint_OrderBestPatterns(p1, p2, p3)
-				test := []*detector.FinderPattern{
-					bl.(*detector.FinderPattern), tl.(*detector.FinderPattern), tr.(*detector.FinderPattern),
+				test := []*FinderPattern{
+					bl.(*FinderPattern), tl.(*FinderPattern), tr.(*FinderPattern),
 				}
 
 				// Calculate the distances: a = topleft-bottomleft, b=topleft-topright, c = diagonal
-				info := detector.NewFinderPatternInfo(test[0], test[1], test[2])
+				info := NewFinderPatternInfo(test[0], test[1], test[2])
 				dA := gozxing.ResultPoint_Distance(info.GetTopLeft(), info.GetBottomLeft())
 				dC := gozxing.ResultPoint_Distance(info.GetTopRight(), info.GetBottomLeft())
 				dB := gozxing.ResultPoint_Distance(info.GetTopLeft(), info.GetTopRight())
@@ -193,7 +192,7 @@ func (this *MultiFinderPatternFinder) selectMultipleBestPatterns() ([][]*detecto
 	return nil, gozxing.NewNotFoundException()
 }
 
-func (this *MultiFinderPatternFinder) FindMulti(hints map[gozxing.DecodeHintType]interface{}) ([]*detector.FinderPatternInfo, error) {
+func (this *MultiFinderPatternFinder) FindMulti(hints map[gozxing.DecodeHintType]interface{}) ([]*FinderPatternInfo, error) {
 	_, tryHarder := hints[gozxing.DecodeHintType_TRY_HARDER]
 	image := this.GetImage()
 	maxI := image.GetHeight()
@@ -205,15 +204,15 @@ func (this *MultiFinderPatternFinder) FindMulti(hints map[gozxing.DecodeHintType
 	// image, and then account for the center being 3 modules in size. This gives the smallest
 	// number of pixels the center could be, so skip this often. When trying harder, look for all
 	// QR versions regardless of how dense they are.
-	iSkip := (3 * maxI) / (4 * detector.FinderPatternFinder_MAX_MODULES)
-	if iSkip < detector.FinderPatternFinder_MIN_SKIP || tryHarder {
-		iSkip = detector.FinderPatternFinder_MIN_SKIP
+	iSkip := (3 * maxI) / (4 * FinderPatternFinder_MAX_MODULES)
+	if iSkip < FinderPatternFinder_MIN_SKIP || tryHarder {
+		iSkip = FinderPatternFinder_MIN_SKIP
 	}
 
 	stateCount := make([]int, 5)
 	for i := iSkip - 1; i < maxI; i += iSkip {
 		// Get a row of black/white values
-		detector.FinderPatternFinder_doClearCounts(stateCount)
+		FinderPatternFinder_doClearCounts(stateCount)
 		currentState := 0
 		for j := 0; j < maxJ; j++ {
 			if image.Get(j, i) {
@@ -225,13 +224,13 @@ func (this *MultiFinderPatternFinder) FindMulti(hints map[gozxing.DecodeHintType
 			} else { // White pixel
 				if (currentState & 1) == 0 { // Counting black pixels
 					if currentState == 4 { // A winner?
-						if detector.FinderPatternFinder_foundPatternCross(stateCount) &&
+						if FinderPatternFinder_foundPatternCross(stateCount) &&
 							this.HandlePossibleCenter(stateCount, i, j) { // Yes
 							// Clear state to start looking again
 							currentState = 0
-							detector.FinderPatternFinder_doClearCounts(stateCount)
+							FinderPatternFinder_doClearCounts(stateCount)
 						} else { // No, shift counts back by two
-							detector.FinderPatternFinder_doShiftCounts2(stateCount)
+							FinderPatternFinder_doShiftCounts2(stateCount)
 							currentState = 3
 						}
 					} else {
@@ -244,7 +243,7 @@ func (this *MultiFinderPatternFinder) FindMulti(hints map[gozxing.DecodeHintType
 			}
 		} // for j=...
 
-		if detector.FinderPatternFinder_foundPatternCross(stateCount) {
+		if FinderPatternFinder_foundPatternCross(stateCount) {
 			this.HandlePossibleCenter(stateCount, i, maxJ)
 		}
 	} // for i=iSkip-1 ...
@@ -252,12 +251,12 @@ func (this *MultiFinderPatternFinder) FindMulti(hints map[gozxing.DecodeHintType
 	if e != nil {
 		return nil, e
 	}
-	result := make([]*detector.FinderPatternInfo, 0)
+	result := make([]*FinderPatternInfo, 0)
 	for _, pattern := range patternInfo {
 		bl, tl, tr := gozxing.ResultPoint_OrderBestPatterns(pattern[0], pattern[1], pattern[2])
 		result = append(result,
-			detector.NewFinderPatternInfo(
-				bl.(*detector.FinderPattern), tl.(*detector.FinderPattern), tr.(*detector.FinderPattern)))
+			NewFinderPatternInfo(
+				bl.(*FinderPattern), tl.(*FinderPattern), tr.(*FinderPattern)))
 	}
 
 	return result, nil

@@ -108,93 +108,93 @@ func TestProcessStructuredAppend(t *testing.T) {
 	}
 }
 
-func TestQRCodeMultiReader_DecodeMultiple(t *testing.T) {
-	reader := NewQRCodeMultiReader()
+func TestQRCodeReaderMultiple_Decode(t *testing.T) {
+	reader := NewQRCodeReader()
 
 	bmp, _ := gozxing.NewBitMatrix(1, 1)
 	img := testutil.NewBinaryBitmapFromBitMatrix(bmp)
-	_, e := reader.DecodeMultiple(img, nil)
+	_, e := reader.Decode(img, nil)
 	if _, ok := e.(gozxing.NotFoundException); !ok {
-		t.Fatalf("DecodeMultiple must be NotFoundException, %T", e)
+		t.Fatalf("Decode must be NotFoundException, %T", e)
 	}
 
 	bmp, _ = gozxing.NewBitMatrix(10, 10)
 	img = testutil.NewBinaryBitmapFromBitMatrix(bmp)
-	_, e = reader.DecodeMultiple(img, nil)
+	_, e = reader.Decode(img, nil)
 	if _, ok := e.(gozxing.NotFoundException); !ok {
-		t.Fatalf("DecodeMultiple must be NotFoundException, %T", e)
+		t.Fatalf("Decode must be NotFoundException, %T", e)
 	}
 
 	bmp, _ = gozxing.ParseStringToBitMatrix(qrstr, "##", "  ")
 	img = testutil.NewBinaryBitmapFromBitMatrix(bmp)
-	results, e := reader.DecodeMultiple(img, nil)
+	results, e := reader.Decode(img, nil)
 	if e != nil {
-		t.Fatalf("DecodeMultiple returns error: %v", e)
+		t.Fatalf("Decode returns error: %v", e)
 	}
 	if n := len(results); n != 2 {
-		t.Fatalf("DecodeMultiple len(results) = %v, wants 2", n)
+		t.Fatalf("Decode len(results) = %v, wants 2", n)
 	}
 	for i, r := range results {
 		if r.GetText() != "hello\n" {
-			t.Fatalf("DecodeMultiple results[%v] = \"%v\", wants \"hello\\n\"", i, r.GetText())
+			t.Fatalf("Decode results[%v] = \"%v\", wants \"hello\\n\"", i, r.GetText())
 		}
 	}
 
 	bmp, _ = gozxing.ParseStringToBitMatrix(qrstr, "##", "  ")
 	bmp = testutil.MirrorBitMatrix(bmp)
 	img = testutil.NewBinaryBitmapFromBitMatrix(bmp)
-	results, e = reader.DecodeMultiple(img, nil)
+	results, e = reader.Decode(img, nil)
 	if e != nil {
-		t.Fatalf("DecodeMultiple returns error: %v", e)
+		t.Fatalf("Decode returns error: %v", e)
 	}
 	if n := len(results); n != 2 {
-		t.Fatalf("DecodeMultiple len(results) = %v, wants 2", n)
+		t.Fatalf("Decode len(results) = %v, wants 2", n)
 	}
 	for i, r := range results {
 		if r.GetText() != "hello\n" {
-			t.Fatalf("DecodeMultiple results[%v] = \"%v\", wants \"hello\\n\"", i, r.GetText())
+			t.Fatalf("Decode results[%v] = \"%v\", wants \"hello\\n\"", i, r.GetText())
 		}
 	}
 
 	bmp, _ = gozxing.ParseStringToBitMatrix(qrstr, "##", "  ")
 	bmp.SetRegion(8, 8, 10, 10)
 	img = testutil.NewBinaryBitmapFromBitMatrix(bmp)
-	results, e = reader.DecodeMultiple(img, nil)
+	results, e = reader.Decode(img, nil)
 	if e != nil {
-		t.Fatalf("DecodeMultiple returns error: %v", e)
+		t.Fatalf("Decode returns error: %v", e)
 	}
 	if n := len(results); n != 1 {
-		t.Fatalf("DecodeMultiple len(results) = %v, wants 1", n)
+		t.Fatalf("Decode len(results) = %v, wants 1", n)
 	}
 	if txt := results[0].GetText(); txt != "hello\n" {
-		t.Fatalf("DecodeMultiple results[0] = \"%v\", wants \"hello\\n\"", txt)
+		t.Fatalf("Decode results[0] = \"%v\", wants \"hello\\n\"", txt)
 	}
 }
 
-func TestQRCodeMultiReader_DecodeMultipleWithoutHint(t *testing.T) {
-	reader := NewQRCodeMultiReader()
+func TestQRCodeReaderMultiple_DecodeWithoutHints(t *testing.T) {
+	reader := NewQRCodeReader()
 
 	testResults := []struct {
 		file     string
 		contents []string
 	}{
 		// https://github.com/zxing/zxing/tree/master/core/src/test/resources/blackbox/multi-qrcode-1
-		{"testdata/1.png", []string{
+		{"testdata/multi-1.png", []string{
 			"You get to CREATE OUR JOURNAL PROMPT FOR THE DAY!  Yay!  Way to go!  ",
 			"You earned the class 5 EXTRA MINUTES OF RECESS!!  Fabulous!!  Way to go!!",
 			"You earned the class a 5 MINUTE DANCE PARTY!!  Awesome!  Way to go!  Let's boogie!",
 			"You get to SIT AT MRS. SIGMON'S DESK FOR A DAY!!  Awesome!!  Way to go!! Guess I better clean up! :)",
 		}},
 		// ISO/IEC 18004:2000 Figure 22
-		{"testdata/sa.png", []string{
+		{"testdata/multi-sa.png", []string{
 			"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ",
 		}},
 	}
 	for _, test := range testResults {
 		bmp := testutil.NewBinaryBitmapFromFile(test.file)
-		results, e := reader.DecodeMultipleWithoutHint(bmp)
+		results, e := reader.DecodeWithoutHints(bmp)
 		if e != nil {
-			t.Fatalf("DecodeMultiple returns error: %v", e)
+			t.Fatalf("Decode returns error: %v", e)
 		}
 		if nr, ne := len(results), len(test.contents); nr != ne {
 			t.Fatalf("len(results) = %v, wants %v", nr, ne)
@@ -207,13 +207,13 @@ func TestQRCodeMultiReader_DecodeMultipleWithoutHint(t *testing.T) {
 	}
 }
 
-// TestQRCodeMultiReader_DecodeReportsEveryCode checks the gozxing.Reader entry points. They used
-// to come from the embedded QRCodeReader, which reads one QR code, so a caller holding this
-// reader as a gozxing.Reader saw one of the four codes in testdata/1.png.
-func TestQRCodeMultiReader_DecodeReportsEveryCode(t *testing.T) {
-	var reader gozxing.Reader = NewQRCodeMultiReader().(*QRCodeMultiReader)
+// TestQRCodeReaderMultiple_DecodeReportsEveryCode checks the gozxing.Reader entry points. Reading
+// several QR codes at once used to need a second reader type in a separate package, and a caller
+// holding a plain gozxing.Reader got one of the four codes in testdata/multi-1.png.
+func TestQRCodeReaderMultiple_DecodeReportsEveryCode(t *testing.T) {
+	reader := NewQRCodeReader()
 
-	// testdata/1.png holds four QR codes. See TestQRCodeMultiReader_DecodeMultipleWithoutHint.
+	// testdata/multi-1.png holds four QR codes. See TestQRCodeReaderMultiple_DecodeWithoutHints.
 	wants := 4
 
 	for _, decode := range []struct {
@@ -226,7 +226,7 @@ func TestQRCodeMultiReader_DecodeReportsEveryCode(t *testing.T) {
 		{"DecodeWithoutHints", reader.DecodeWithoutHints},
 	} {
 		t.Run(decode.name, func(t *testing.T) {
-			results, e := decode.call(testutil.NewBinaryBitmapFromFile("testdata/1.png"))
+			results, e := decode.call(testutil.NewBinaryBitmapFromFile("testdata/multi-1.png"))
 			if e != nil {
 				t.Fatalf("%v returns error: %v", decode.name, e)
 			}

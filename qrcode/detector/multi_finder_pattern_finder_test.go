@@ -7,7 +7,6 @@ import (
 	"unsafe"
 
 	"github.com/teldio-operations/gozxing"
-	"github.com/teldio-operations/gozxing/qrcode/detector"
 )
 
 var qrstr = "" +
@@ -59,12 +58,12 @@ var qrstr = "" +
 	"##############  ########  ######      ####        ##############  ########  ######      ####\n"
 
 func TestModuleSizeComparator(t *testing.T) {
-	patterns := []*detector.FinderPattern{
-		detector.NewFinderPattern1(1, 1, 5),
-		detector.NewFinderPattern1(1, 1, 3),
-		detector.NewFinderPattern1(1, 1, 1),
-		detector.NewFinderPattern1(1, 1, 4),
-		detector.NewFinderPattern1(1, 1, 2),
+	patterns := []*FinderPattern{
+		NewFinderPattern1(1, 1, 5),
+		NewFinderPattern1(1, 1, 3),
+		NewFinderPattern1(1, 1, 1),
+		NewFinderPattern1(1, 1, 4),
+		NewFinderPattern1(1, 1, 2),
 	}
 	sort.Slice(patterns, ModuleSizeComparator(patterns))
 
@@ -76,9 +75,9 @@ func TestModuleSizeComparator(t *testing.T) {
 	}
 }
 
-func injectPossibleCenters(finder *MultiFinderPatternFinder, patterns []*detector.FinderPattern) {
+func injectPossibleCenters(finder *MultiFinderPatternFinder, patterns []*FinderPattern) {
 	v := reflect.ValueOf(finder).Elem().FieldByName("possibleCenters")
-	p := (*[]*detector.FinderPattern)(unsafe.Pointer(v.UnsafeAddr()))
+	p := (*[]*FinderPattern)(unsafe.Pointer(v.UnsafeAddr()))
 	*p = patterns
 }
 
@@ -88,10 +87,10 @@ func compResultPoint(p gozxing.ResultPoint, x, y float64) bool {
 
 func TestMultiFinderPatternFinder_selectMultipleBestPatterns(t *testing.T) {
 
-	finder := &MultiFinderPatternFinder{&detector.FinderPatternFinder{}}
-	injectPossibleCenters(finder, []*detector.FinderPattern{
-		detector.NewFinderPattern1(0, 0, 1),
-		detector.NewFinderPattern1(0, 0, 2),
+	finder := &MultiFinderPatternFinder{&FinderPatternFinder{}}
+	injectPossibleCenters(finder, []*FinderPattern{
+		NewFinderPattern1(0, 0, 1),
+		NewFinderPattern1(0, 0, 2),
 	})
 
 	_, e := finder.selectMultipleBestPatterns()
@@ -99,10 +98,10 @@ func TestMultiFinderPatternFinder_selectMultipleBestPatterns(t *testing.T) {
 		t.Fatalf("selectMultipleBestPatterns must be NotFoundException, %T", e)
 	}
 
-	ptns := []*detector.FinderPattern{
-		detector.NewFinderPattern1(10, 10, 10),
-		detector.NewFinderPattern1(50, 50, 11),
-		detector.NewFinderPattern1(10, 50, 12),
+	ptns := []*FinderPattern{
+		NewFinderPattern1(10, 10, 10),
+		NewFinderPattern1(50, 50, 11),
+		NewFinderPattern1(10, 50, 12),
 	}
 	injectPossibleCenters(finder, ptns)
 
@@ -110,30 +109,30 @@ func TestMultiFinderPatternFinder_selectMultipleBestPatterns(t *testing.T) {
 	if e != nil {
 		t.Fatalf("selectMultipleBestPatterns returns error: %v", e)
 	}
-	if !reflect.DeepEqual(r, [][]*detector.FinderPattern{ptns}) {
+	if !reflect.DeepEqual(r, [][]*FinderPattern{ptns}) {
 		t.Fatalf("bestPatterns = %v, expect %v", r, ptns)
 	}
 
-	injectPossibleCenters(finder, []*detector.FinderPattern{
+	injectPossibleCenters(finder, []*FinderPattern{
 		// estimatedModuleSize missmatch.
-		detector.NewFinderPattern1(100, 100, 5.59),
-		detector.NewFinderPattern1(100, 200, 5.58),
-		detector.NewFinderPattern1(200, 100, 15.57),
-		detector.NewFinderPattern1(200, 200, 15.56),
+		NewFinderPattern1(100, 100, 5.59),
+		NewFinderPattern1(100, 200, 5.58),
+		NewFinderPattern1(200, 100, 15.57),
+		NewFinderPattern1(200, 200, 15.56),
 	})
 	_, e = finder.selectMultipleBestPatterns()
 	if _, ok := e.(gozxing.NotFoundException); !ok {
 		t.Fatalf("selectMultipleBestPatterns must be NotFoundException, %T", e)
 	}
 
-	injectPossibleCenters(finder, []*detector.FinderPattern{
-		detector.NewFinderPattern1(100, 100, 5.59),
-		detector.NewFinderPattern1(100, 130, 5.58),
-		detector.NewFinderPattern1(130, 100, 5.57), // 0-1-2: failed on check the size
-		detector.NewFinderPattern1(100, 200, 5.56), // 0-1-3: failed on difference of the edge lengths
-		detector.NewFinderPattern1(197, 75, 5.55),  // 0-3-4: failed on angle at topleft
-		detector.NewFinderPattern1(200, 100, 5.54), // 0-3-5: OK
-		detector.NewFinderPattern1(170, 10, 5.53),  // 2-4-6: OK
+	injectPossibleCenters(finder, []*FinderPattern{
+		NewFinderPattern1(100, 100, 5.59),
+		NewFinderPattern1(100, 130, 5.58),
+		NewFinderPattern1(130, 100, 5.57), // 0-1-2: failed on check the size
+		NewFinderPattern1(100, 200, 5.56), // 0-1-3: failed on difference of the edge lengths
+		NewFinderPattern1(197, 75, 5.55),  // 0-3-4: failed on angle at topleft
+		NewFinderPattern1(200, 100, 5.54), // 0-3-5: OK
+		NewFinderPattern1(170, 10, 5.53),  // 2-4-6: OK
 	})
 	// expected results: [(100,200),(100,100),(200,100)] and [(130,100),(197,75),(170,10)]
 	r, e = finder.selectMultipleBestPatterns()

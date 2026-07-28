@@ -28,52 +28,98 @@ func (this *QRCodeReader) DecodeWithoutHints(image *gozxing.BinaryBitmap) ([]*go
 	return this.Decode(image, nil)
 }
 
-// Decode reads the single QR code in the image. A QR code image holds at most one symbol,
-// so the slice never has more than one element. Use multi/qrcode.QRCodeMultiReader for
-// images with several QR codes.
+// Decode reads every QR code in the image, in the order the detector located them.
+//
+// It uses the detector that locates all of the QR codes in an image, so one call reads a page of
+// them. A QR code that fails to decode does not stop the ones beside it: Decode reports the codes
+// it did read, and only fails when it read none.
+//
+// The PURE_BARCODE hint is the exception. That hint says the image is one symbol, cropped to its
+// edges and aligned to the module grid, so there is nothing to detect and nothing to find beside
+// it. Decode then reads that one symbol.
 func (this *QRCodeReader) Decode(image *gozxing.BinaryBitmap, hints map[gozxing.DecodeHintType]interface{}) ([]*gozxing.Result, error) {
-	result, e := this.decodeSingle(image, hints)
-	if e != nil {
-		return nil, e
-	}
-	return []*gozxing.Result{result}, nil
-}
-
-func (this *QRCodeReader) decodeSingle(image *gozxing.BinaryBitmap, hints map[gozxing.DecodeHintType]interface{}) (*gozxing.Result, error) {
-	var decoderResult *common.DecoderResult
-	var points []gozxing.ResultPoint
-
 	blackMatrix, e := image.GetBlackMatrix()
 	if e != nil {
 		return nil, e
 	}
+
 	if _, ok := hints[gozxing.DecodeHintType_PURE_BARCODE]; ok {
 		bits, e := this.extractPureBits(blackMatrix)
 		if e != nil {
 			return nil, e
 		}
-		decoderResult, e = this.decoder.Decode(bits, hints)
+		decoderResult, e := this.decoder.Decode(bits, hints)
 		if e != nil {
 			return nil, e
 		}
-		points = []gozxing.ResultPoint{}
-	} else {
-		detectorResult, e := detector.NewDetector(blackMatrix).Detect(hints)
-		if e != nil {
-			return nil, e
-		}
-		decoderResult, e = this.decoder.Decode(detectorResult.GetBits(), hints)
-		if e != nil {
-			return nil, e
-		}
-		points = detectorResult.GetPoints()
+		return []*gozxing.Result{newQRResult(decoderResult, []gozxing.ResultPoint{})}, nil
 	}
 
+	detectorResults, e := detector.NewMultiDetector(blackMatrix).DetectMulti(hints)
+	if e != nil {
+		return nil, e
+	}
+
+	results := make([]*gozxing.Result, 0, len(detectorResults))
+	var firstReaderError error
+	for _, detectorResult := range detectorResults {
+		decoderResult, e := this.decoder.Decode(detectorResult.GetBits(), hints)
+		if e != nil {
+			if _, ok := e.(gozxing.ReaderException); !ok {
+				return nil, e
+			}
+			// One unreadable symbol among several is not the caller's answer. Remember why it
+			// failed, in case it turns out to be the only symbol in the image.
+			if firstReaderError == nil {
+				firstReaderError = e
+			}
+			continue
+		}
+		points := detectorResult.GetPoints()
+		// If the code was mirrored: swap the bottom-left and the top-right points.
+		if metadata, ok := decoderResult.GetOther().(*decoder.QRCodeDecoderMetaData); ok {
+			metadata.ApplyMirroredCorrection(points)
+		}
+		results = append(results, newQRResult(decoderResult, points))
+	}
+
+	if len(results) == 0 {
+		// The detector that locates several QR codes is not a superset of the one that locates a
+		// single code. On a hard image it sometimes settles on finder patterns that decode to
+		// nothing while the single-code detector reads the image. Fall back to it, so that
+		// reporting several codes never costs the one code the reader found before.
+		result, e := this.decodeSingleCode(blackMatrix, hints)
+		if e == nil {
+			return []*gozxing.Result{result}, nil
+		}
+		if firstReaderError != nil {
+			return nil, firstReaderError
+		}
+		return nil, e
+	}
+	return processStructuredAppend(results), nil
+}
+
+func (this *QRCodeReader) decodeSingleCode(blackMatrix *gozxing.BitMatrix,
+	hints map[gozxing.DecodeHintType]interface{}) (*gozxing.Result, error) {
+
+	detectorResult, e := detector.NewDetector(blackMatrix).Detect(hints)
+	if e != nil {
+		return nil, e
+	}
+	decoderResult, e := this.decoder.Decode(detectorResult.GetBits(), hints)
+	if e != nil {
+		return nil, e
+	}
+	points := detectorResult.GetPoints()
 	// If the code was mirrored: swap the bottom-left and the top-right points.
 	if metadata, ok := decoderResult.GetOther().(*decoder.QRCodeDecoderMetaData); ok {
 		metadata.ApplyMirroredCorrection(points)
 	}
+	return newQRResult(decoderResult, points), nil
+}
 
+func newQRResult(decoderResult *common.DecoderResult, points []gozxing.ResultPoint) *gozxing.Result {
 	result := gozxing.NewResult(decoderResult.GetText(), decoderResult.GetRawBytes(), points, gozxing.BarcodeFormat_QR_CODE)
 	byteSegments := decoderResult.GetByteSegments()
 	if len(byteSegments) > 0 {
@@ -93,7 +139,7 @@ func (this *QRCodeReader) decodeSingle(image *gozxing.BinaryBitmap, hints map[go
 	}
 	result.PutMetadata(
 		gozxing.ResultMetadataType_SYMBOLOGY_IDENTIFIER, "]Q"+strconv.Itoa(decoderResult.GetSymbologyModifier()))
-	return result, nil
+	return result
 }
 
 func (this *QRCodeReader) Reset() {
