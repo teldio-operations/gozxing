@@ -78,10 +78,8 @@ func TestMultiFormatUPCEANReader(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.file, func(t *testing.T) {
 			img := testutil.NewBinaryBitmapFromFile(test.file)
-			r, e := reader.Decode(img, hints)
-			if e != nil {
-				t.Fatalf("reader.Decode returns error: %+v", e)
-			}
+			rs, e := reader.Decode(img, hints)
+			r := testutil.OneResult(t, rs, e)
 			if text := r.GetText(); text != test.text {
 				t.Fatalf("result text = \"%v\", wants \"%v\"", text, test.text)
 			}

@@ -123,15 +123,21 @@ func (s DummyGridSampler) SampleGridWithTransform(image *gozxing.BitMatrix,
 	return nil, errors.New("dummy sampler")
 }
 
+// TestFile decodes an image that holds exactly one barcode. It fails if the reader returns
+// any other number of results.
 func TestFile(t testing.TB, reader gozxing.Reader, file, expectText string,
 	expectFormat gozxing.BarcodeFormat, hints map[gozxing.DecodeHintType]interface{},
 	metadata map[gozxing.ResultMetadataType]interface{}) {
 	t.Helper()
 	bmp := NewBinaryBitmapFromFile(file)
-	result, e := reader.Decode(bmp, hints)
+	results, e := reader.Decode(bmp, hints)
 	if e != nil {
 		t.Fatalf("TestFail(%v) reader.Decode failed: %v", file, e)
 	}
+	if len(results) != 1 {
+		t.Fatalf("TestFile(%v) returned %v results, wants 1: %v", file, len(results), resultTexts(results))
+	}
+	result := results[0]
 	if txt := result.GetText(); txt != expectText {
 		t.Fatalf("TestFile(%v) = \"%v\", wants \"%v\"", file, txt, expectText)
 	}
@@ -149,4 +155,45 @@ func TestFile(t testing.TB, reader gozxing.Reader, file, expectText string,
 			t.Fatalf("TestFile(%v) metadata[%v] = %#v, wants %#v", file, k, m, v)
 		}
 	}
+}
+
+// TestFileMultiple decodes an image that holds several barcodes. It fails unless the reader
+// finds every expected text, in order, and nothing else.
+func TestFileMultiple(t testing.TB, reader gozxing.Reader, file string, expectTexts []string,
+	expectFormat gozxing.BarcodeFormat, hints map[gozxing.DecodeHintType]interface{}) {
+	t.Helper()
+	bmp := NewBinaryBitmapFromFile(file)
+	results, e := reader.Decode(bmp, hints)
+	if e != nil {
+		t.Fatalf("TestFileMultiple(%v) reader.Decode failed: %v", file, e)
+	}
+	texts := resultTexts(results)
+	if !reflect.DeepEqual(texts, expectTexts) {
+		t.Fatalf("TestFileMultiple(%v) = %q, wants %q", file, texts, expectTexts)
+	}
+	for i, result := range results {
+		if format := result.GetBarcodeFormat(); format != expectFormat {
+			t.Fatalf("TestFileMultiple(%v) result[%v] format = %v, wants %v", file, i, format, expectFormat)
+		}
+	}
+}
+
+// OneResult unwraps a decode that must have found exactly one barcode.
+func OneResult(t testing.TB, results []*gozxing.Result, e error) *gozxing.Result {
+	t.Helper()
+	if e != nil {
+		t.Fatalf("Decode failed: %v", e)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Decode returned %v results, wants 1: %q", len(results), resultTexts(results))
+	}
+	return results[0]
+}
+
+func resultTexts(results []*gozxing.Result) []string {
+	texts := make([]string, len(results))
+	for i, result := range results {
+		texts[i] = result.GetText()
+	}
+	return texts
 }

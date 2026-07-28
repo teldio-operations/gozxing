@@ -216,10 +216,8 @@ func TestEan13ReaderWithExtension(t *testing.T) {
 
 	reader := NewEAN13Reader()
 	bmp := testutil.NewBinaryBitmapFromFile("testdata/ean13/ean13-1.png")
-	result, e := reader.Decode(bmp, hints)
-	if e != nil {
-		t.Fatalf("read file failed, %v", e)
-	}
+	results, e := reader.Decode(bmp, hints)
+	result := testutil.OneResult(t, results, e)
 
 	expect := "9780201310054"
 	if txt := result.GetText(); txt != expect {

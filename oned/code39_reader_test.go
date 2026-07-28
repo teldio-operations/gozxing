@@ -220,7 +220,6 @@ func TestCode39Reader(t *testing.T) {
 		{"testdata/code39/05.png", "001EC947D49B", nil},
 		{"testdata/code39/06.png", "165340", nil},
 		{"testdata/code39/07.png", "165340", nil},
-		{"testdata/code39/08.png", "165340", nil},
 		{"testdata/code39/09.png", "165340", nil},
 		{"testdata/code39/10.png", "001EC94767E0", nil},
 		{"testdata/code39/11.png", "001EC94767E0", nil},
@@ -234,6 +233,11 @@ func TestCode39Reader(t *testing.T) {
 	for _, test := range tests {
 		testutil.TestFile(t, reader, test.file, test.wants, format, nil, test.metadata)
 	}
+
+	// This photo caught two labels. The lower barcode sits at the bottom edge of the frame,
+	// and its printed text "001EC9476B0A" confirms the read.
+	testutil.TestFileMultiple(t, reader, "testdata/code39/08.png",
+		[]string{"165340", "001EC9476B0A"}, format, nil)
 
 	// extended mode
 	reader = NewCode39ReaderWithFlags(false, true)

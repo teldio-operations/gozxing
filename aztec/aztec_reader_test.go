@@ -14,7 +14,7 @@ func TestAztecReader_Decode(t *testing.T) {
 
 	img, _ := gozxing.NewBitMatrix(1, 1)
 	bmp := testutil.NewBinaryBitmapFromBitMatrix(img)
-	r, e := d.DecodeWithoutHints(bmp)
+	_, e := d.DecodeWithoutHints(bmp)
 	if e == nil {
 		t.Fatalf("Decode must be error")
 	}
@@ -104,10 +104,8 @@ func TestAztecReader_Decode(t *testing.T) {
 			points = append(points, point)
 		})
 
-	r, e = d.Decode(bmp, hints)
-	if e != nil {
-		t.Fatalf("Decode error: %+v", e)
-	}
+	rs, e := d.Decode(bmp, hints)
+	r := testutil.OneResult(t, rs, e)
 	if txt, wants := r.GetText(), "Histórico"; txt != wants {
 		t.Fatalf("GetText: %v, wants %v", txt, wants)
 	}

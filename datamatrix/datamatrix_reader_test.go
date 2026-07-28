@@ -172,10 +172,8 @@ func TestDataMatrixReader_DecodePureBarcode(t *testing.T) {
 
 	img, _ = gozxing.ParseStringToBitMatrix(dm4str, "##", "  ")
 	bmp = testutil.NewBinaryBitmapFromBitMatrix(testutil.ExpandBitMatrix(img, 2))
-	result, e := reader.Decode(bmp, hints)
-	if e != nil {
-		t.Fatalf("Decode returns error, %v", e)
-	}
+	results, e := reader.Decode(bmp, hints)
+	result := testutil.OneResult(t, results, e)
 	expect := "Hello World"
 	if r := result.GetText(); r != expect {
 		t.Fatalf("Decode result=\"%v\", expect \"%v\"", r, expect)
@@ -216,10 +214,8 @@ func TestDataMatrixReader_DecodeWithoutHints(t *testing.T) {
 
 	img, _ = gozxing.ParseStringToBitMatrix(dmstr, "##", "  ")
 	bmp = testutil.NewBinaryBitmapFromBitMatrix(testutil.ExpandBitMatrix(img, 4))
-	result, e := reader.DecodeWithoutHints(bmp)
-	if e != nil {
-		t.Fatalf("Decode returns error, %v\n", e)
-	}
+	results, e := reader.DecodeWithoutHints(bmp)
+	result := testutil.OneResult(t, results, e)
 	expect := "Testing C40"
 	if r := result.GetText(); r != expect {
 		t.Fatalf("Decode result=\"%v\", expect \"%v\"", r, expect)

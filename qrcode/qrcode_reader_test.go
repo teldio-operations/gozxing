@@ -90,17 +90,13 @@ func TestQRCodeReader_DecodeBitMatrixSource(t *testing.T) {
 	matrix, _ = gozxing.ParseStringToBitMatrix(qrstr, "##", "  ")
 	bmp = testutil.NewBinaryBitmapFromBitMatrix(matrix)
 	textexpect := "hello\n"
-	r, e := reader.DecodeWithoutHints(bmp)
-	if e != nil {
-		t.Fatalf("Decode returns error, %v", e)
-	}
+	rs, e := reader.DecodeWithoutHints(bmp)
+	r := testutil.OneResult(t, rs, e)
 	if txt := r.GetText(); txt != textexpect {
 		t.Fatalf("Decode text = \"%v\", expect \"%v\"", txt, textexpect)
 	}
-	r, e = reader.Decode(bmp, hints)
-	if e != nil {
-		t.Fatalf("Decode returns error, %v", e)
-	}
+	rs, e = reader.Decode(bmp, hints)
+	r = testutil.OneResult(t, rs, e)
 	if txt := r.GetText(); txt != textexpect {
 		t.Fatalf("Decode text = \"%v\", expect \"%v\"", txt, textexpect)
 	}
@@ -207,10 +203,8 @@ func TestQRCodeReader_Reset(t *testing.T) {
 func testDecodeImage(t testing.TB, file, expect string) *gozxing.Result {
 	t.Helper()
 	bmp := testutil.NewBinaryBitmapFromFile(file)
-	r, e := NewQRCodeReader().Decode(bmp, nil)
-	if e != nil {
-		t.Fatalf("Decode(%s) returns error, %v", file, e)
-	}
+	rs, e := NewQRCodeReader().Decode(bmp, nil)
+	r := testutil.OneResult(t, rs, e)
 
 	if f := r.GetBarcodeFormat(); f != gozxing.BarcodeFormat_QR_CODE {
 		t.Fatalf("Decode(%s) format is not QR_COODE, %v", file, f)

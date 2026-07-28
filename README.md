@@ -89,10 +89,32 @@ func main() {
 
 	// decode image
 	qrReader := qrcode.NewQRCodeReader()
-	result, _ := qrReader.Decode(bmp, nil)
+	results, _ := qrReader.Decode(bmp, nil)
 
-	fmt.Println(result)
+	// Decode returns one result per barcode it finds in the image
+	for _, result := range results {
+		fmt.Println(result)
+	}
 }
+```
+
+### Scanning several barcodes in one image
+
+`Reader.Decode` returns a `[]*gozxing.Result`, one entry per barcode. The 1D readers in
+`oned` scan the whole image and report every barcode they find, from the top of the image
+down. The 2D readers report at most one, because their detectors locate one symbol. Use
+`multi/qrcode.QRCodeMultiReader` for an image of several QR codes.
+
+```Go
+	reader := oned.NewCode128Reader()
+	results, err := reader.Decode(bmp, nil)
+	if err != nil {
+		// gozxing.NotFoundException when the image holds no barcode at all
+		log.Fatal(err)
+	}
+	for _, result := range results {
+		fmt.Println(result.GetText())
+	}
 ```
 
 ### Generating CODE128 barcode

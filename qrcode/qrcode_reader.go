@@ -24,11 +24,22 @@ func (this *QRCodeReader) GetDecoder() *decoder.Decoder {
 	return this.decoder
 }
 
-func (this *QRCodeReader) DecodeWithoutHints(image *gozxing.BinaryBitmap) (*gozxing.Result, error) {
+func (this *QRCodeReader) DecodeWithoutHints(image *gozxing.BinaryBitmap) ([]*gozxing.Result, error) {
 	return this.Decode(image, nil)
 }
 
-func (this *QRCodeReader) Decode(image *gozxing.BinaryBitmap, hints map[gozxing.DecodeHintType]interface{}) (*gozxing.Result, error) {
+// Decode reads the single QR code in the image. A QR code image holds at most one symbol,
+// so the slice never has more than one element. Use multi/qrcode.QRCodeMultiReader for
+// images with several QR codes.
+func (this *QRCodeReader) Decode(image *gozxing.BinaryBitmap, hints map[gozxing.DecodeHintType]interface{}) ([]*gozxing.Result, error) {
+	result, e := this.decodeSingle(image, hints)
+	if e != nil {
+		return nil, e
+	}
+	return []*gozxing.Result{result}, nil
+}
+
+func (this *QRCodeReader) decodeSingle(image *gozxing.BinaryBitmap, hints map[gozxing.DecodeHintType]interface{}) (*gozxing.Result, error) {
 	var decoderResult *common.DecoderResult
 	var points []gozxing.ResultPoint
 

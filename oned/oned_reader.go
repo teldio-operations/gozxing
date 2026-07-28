@@ -2,6 +2,7 @@ package oned
 
 import (
 	"math"
+	"sort"
 
 	"github.com/teldio-operations/gozxing"
 )
@@ -28,17 +29,17 @@ func NewOneDReader(rowDecoder RowDecoder) *OneDReader {
 	return &OneDReader{rowDecoder}
 }
 
-func (this *OneDReader) DecodeWithoutHints(image *gozxing.BinaryBitmap) (*gozxing.Result, error) {
+func (this *OneDReader) DecodeWithoutHints(image *gozxing.BinaryBitmap) ([]*gozxing.Result, error) {
 	return this.Decode(image, nil)
 }
 
 // Decode Note that we don't try rotation without the try harder flag, even if rotation was supported.
 func (this *OneDReader) Decode(
-	image *gozxing.BinaryBitmap, hints map[gozxing.DecodeHintType]interface{}) (*gozxing.Result, error) {
+	image *gozxing.BinaryBitmap, hints map[gozxing.DecodeHintType]interface{}) ([]*gozxing.Result, error) {
 
-	result, e := this.doDecode(image, hints)
+	results, e := this.doDecode(image, hints)
 	if e == nil {
-		return result, nil
+		return results, nil
 	}
 
 	if _, ok := e.(gozxing.NotFoundException); !ok {
@@ -55,68 +56,80 @@ func (this *OneDReader) Decode(
 		return nil, gozxing.WrapReaderException(e)
 	}
 
-	result, e = this.doDecode(rotatedImage, hints)
+	results, e = this.doDecode(rotatedImage, hints)
 	if e != nil {
 		return nil, e
 	}
-	// Record that we found it rotated 90 degrees CCW / 270 degrees CW
-	metadata := result.GetResultMetadata()
-	orientation := 270
-	if o, ok := metadata[gozxing.ResultMetadataType_ORIENTATION]; ok {
-		// But if we found it reversed in doDecode(), add in that result here:
-		orientation = (orientation + o.(int)) % 360
-	}
-	result.PutMetadata(gozxing.ResultMetadataType_ORIENTATION, orientation)
-	// Update result points
-	points := result.GetResultPoints()
-	if len(points) > 0 {
-		height := float64(rotatedImage.GetHeight())
+	height := float64(rotatedImage.GetHeight())
+	for _, result := range results {
+		// Record that we found it rotated 90 degrees CCW / 270 degrees CW
+		metadata := result.GetResultMetadata()
+		orientation := 270
+		if o, ok := metadata[gozxing.ResultMetadataType_ORIENTATION]; ok {
+			// But if we found it reversed in doDecode(), add in that result here:
+			orientation = (orientation + o.(int)) % 360
+		}
+		result.PutMetadata(gozxing.ResultMetadataType_ORIENTATION, orientation)
+		// Update result points
+		points := result.GetResultPoints()
 		for i := 0; i < len(points); i++ {
 			points[i] = gozxing.NewResultPoint(height-points[i].GetY()-1, points[i].GetX())
 		}
 	}
-	return result, nil
+	return results, nil
 }
 
 func (this *OneDReader) Reset() {
 	// do nothing
 }
 
-// doDecode We're going to examine rows from the middle outward, searching alternately above and below the
-// middle, and farther out each time. rowStep is the number of rows between each successive
-// attempt above and below the middle. So we'd scan row middle, then middle - rowStep, then
-// middle + rowStep, then middle - (2 * rowStep), etc.
-// rowStep is bigger as the image is taller, but is always at least 1. We've somewhat arbitrarily
-// decided that moving up and down by about 1/16 of the image is pretty good; we try more of the
-// image if "trying harder".
+// resultKey identifies one decoded barcode. Every scanned row that lies inside a barcode
+// decodes to the same format and the same text, so those rows share one key.
+type resultKey struct {
+	format gozxing.BarcodeFormat
+	text   string
+}
+
+// rowResult is a decoded barcode and the row it first came from. doDecode sorts on the row to
+// report the barcodes down the image, whatever order the scan found them in.
+type rowResult struct {
+	row    int
+	result *gozxing.Result
+}
+
+// sweepRowStep bounds the gap between the rows of the full-image sweep. The gap is a
+// fraction of the image height, which suits an image of one barcode. An image of stacked
+// barcodes is much taller, and that fraction would step over the short ones.
+const sweepRowStep = 8
+
+// scanRows lists the rows to scan, in the order to scan them.
 //
-// @param image The image to decode
-// @param hints Any hints that were requested
-// @return The contents of the decoded barcode
-// @throws NotFoundException Any spontaneous errors which occur
-func (this *OneDReader) doDecode(
-	image *gozxing.BinaryBitmap, hints map[gozxing.DecodeHintType]interface{}) (*gozxing.Result, error) {
-
-	width := image.GetWidth()
-	height := image.GetHeight()
-	row := gozxing.NewBitArray(width)
-
-	_, tryHarder := hints[gozxing.DecodeHintType_TRY_HARDER]
-	rowStep := height >> 5
+// The first rows are the center-out sweep that a single-barcode image needs: the center of such
+// an image is the most reliable place to read, and rows farther out are progressively worse.
+// The rows after that sweep the whole image, which is what finds the barcodes of a stack.
+func scanRows(height int, tryHarder bool) []int {
+	rowStep := max(1, height>>5)
+	maxLines := 15 // 15 rows spaced 1/32 apart is roughly the middle half of the image
 	if tryHarder {
-		rowStep = height >> 8
-	}
-	rowStep = max(1, rowStep)
-	var maxLines int
-	if tryHarder {
+		rowStep = max(1, height>>8)
 		maxLines = height // Look at the whole image, not just the center
-	} else {
-		maxLines = 15 // 15 rows spaced 1/32 apart is roughly the middle half of the image
 	}
 
+	rows := make([]int, 0, maxLines)
+	queued := make([]bool, height)
+	enqueue := func(rowNumber int) {
+		if !queued[rowNumber] {
+			queued[rowNumber] = true
+			rows = append(rows, rowNumber)
+		}
+	}
+
+	// We're going to examine rows from the middle outward, searching alternately above and below
+	// the middle, and farther out each time. rowStep is the number of rows between each
+	// successive attempt above and below the middle. So we'd scan row middle, then
+	// middle - rowStep, then middle + rowStep, then middle - (2 * rowStep), etc.
 	middle := height / 2
 	for x := 0; x < maxLines; x++ {
-
 		// Scanning from the middle out. Determine which row we're looking at next:
 		rowStepsAboveOrBelow := (x + 1) / 2
 		isAbove := (x & 0x01) == 0 // i.e. is x even?
@@ -130,15 +143,43 @@ func (this *OneDReader) doDecode(
 			// Oops, if we run off the top or bottom, stop
 			break
 		}
+		enqueue(rowNumber)
+	}
+
+	for rowNumber := 0; rowNumber < height; rowNumber += min(rowStep, sweepRowStep) {
+		enqueue(rowNumber)
+	}
+	return rows
+}
+
+// doDecode scans the rows that scanRows lists and collects every barcode they decode to.
+//
+// @param image The image to decode
+// @param hints Any hints that were requested
+// @return one result per barcode, ordered down the image
+// @throws NotFoundException if the image holds no barcode
+func (this *OneDReader) doDecode(
+	image *gozxing.BinaryBitmap, hints map[gozxing.DecodeHintType]interface{}) ([]*gozxing.Result, error) {
+
+	width := image.GetWidth()
+	height := image.GetHeight()
+	row := gozxing.NewBitArray(width)
+	adjacentRow := gozxing.NewBitArray(width)
+
+	_, tryHarder := hints[gozxing.DecodeHintType_TRY_HARDER]
+
+	rowResults := make([]rowResult, 0, 1)
+	found := make(map[resultKey]bool)
+
+	for _, rowNumber := range scanRows(height, tryHarder) {
 
 		// Estimate black point for this row and load it:
 		row, e := image.GetBlackRow(rowNumber, row)
 		if e != nil {
 			if _, ok := e.(gozxing.NotFoundException); ok {
 				continue
-			} else {
-				return nil, gozxing.WrapReaderException(e)
 			}
+			return nil, gozxing.WrapReaderException(e)
 		}
 
 		// While we have the image data in a BitArray, it's fairly cheap to reverse it in place to
@@ -163,36 +204,86 @@ func (this *OneDReader) doDecode(
 
 			// Look for a barcode
 			result, e := this.DecodeRow(rowNumber, row, hints)
+			if e != nil {
+				if _, ok := e.(gozxing.ReaderException); !ok {
+					return nil, e
+				}
+				continue // just couldn't decode this row
+			}
 
-			if e == nil && attempt == 1 {
-				// We found our barcode
-				if attempt == 1 {
-					// But it was upside down, so note that
-					result.PutMetadata(gozxing.ResultMetadataType_ORIENTATION, 180)
-					// And remember to flip the result points horizontally.
-					points := result.GetResultPoints()
-					if len(points) >= 2 {
-						w := float64(width)
-						points[0] = gozxing.NewResultPoint(w-points[0].GetX()-1, points[0].GetY())
-						points[1] = gozxing.NewResultPoint(w-points[1].GetX()-1, points[1].GetY())
-					}
+			if attempt == 1 {
+				// We found our barcode, but it was upside down, so note that
+				result.PutMetadata(gozxing.ResultMetadataType_ORIENTATION, 180)
+				// And remember to flip the result points horizontally.
+				points := result.GetResultPoints()
+				if len(points) >= 2 {
+					w := float64(width)
+					points[0] = gozxing.NewResultPoint(w-points[0].GetX()-1, points[0].GetY())
+					points[1] = gozxing.NewResultPoint(w-points[1].GetX()-1, points[1].GetY())
 				}
 			}
 
-			if e == nil {
-				return result, nil
+			// The first barcode found is the one the reader would have returned before it could
+			// return several, so take it as it is. Every barcode after it has to repeat on an
+			// adjacent row, which is what keeps a lucky misread of a noisy row out of the results.
+			key := resultKey{result.GetBarcodeFormat(), result.GetText()}
+			if !found[key] {
+				if len(rowResults) == 0 ||
+					this.repeatsOnAdjacentRow(image, rowNumber, attempt == 1, key, hints, adjacentRow) {
+					found[key] = true
+					rowResults = append(rowResults, rowResult{rowNumber, result})
+				}
 			}
-			if _, ok := e.(gozxing.ReaderException); !ok {
-				return nil, e
-			}
-			// continue -- just couldn't decode this row
+			// The reversed row holds the same barcode, so stop here and move to the next row.
+			break
 		}
 	}
 
-	return nil, gozxing.NewNotFoundException()
+	if len(rowResults) == 0 {
+		return nil, gozxing.NewNotFoundException()
+	}
+
+	sort.SliceStable(rowResults, func(i, j int) bool { return rowResults[i].row < rowResults[j].row })
+	results := make([]*gozxing.Result, len(rowResults))
+	for i, rr := range rowResults {
+		results[i] = rr.result
+	}
+	return results, nil
 }
 
-//RecordPattern Records the size of successive runs of white and black pixels in a row,
+// repeatsOnAdjacentRow reads the row above and the row below rowNumber, and reports whether
+// either one holds the same barcode.
+//
+// A barcode is many pixels tall, so a row next to it reads the same. A blurred or noisy row
+// sometimes decodes to something that passes its checksum by luck, and that misread does not
+// repeat on the row beside it.
+func (this *OneDReader) repeatsOnAdjacentRow(image *gozxing.BinaryBitmap, rowNumber int, reversed bool,
+	key resultKey, hints map[gozxing.DecodeHintType]interface{}, row *gozxing.BitArray) bool {
+
+	height := image.GetHeight()
+	for _, neighbor := range [2]int{rowNumber + 1, rowNumber - 1} {
+		if neighbor < 0 || neighbor >= height {
+			continue
+		}
+		row, e := image.GetBlackRow(neighbor, row)
+		if e != nil {
+			continue
+		}
+		if reversed {
+			row.Reverse()
+		}
+		result, e := this.DecodeRow(neighbor, row, hints)
+		if e != nil {
+			continue
+		}
+		if (resultKey{result.GetBarcodeFormat(), result.GetText()}) == key {
+			return true
+		}
+	}
+	return false
+}
+
+// RecordPattern Records the size of successive runs of white and black pixels in a row,
 // starting at a given point.
 // The values are recorded in the given array, and the number of runs recorded is equal to the size
 // of the array. If the row starts on a white pixel at the given start point, then the first count
@@ -203,7 +294,8 @@ func (this *OneDReader) doDecode(
 // @param start offset into row to start at
 // @param counters array into which to record counts
 // @throws NotFoundException if counters cannot be filled entirely from row before running out
-//  of pixels
+//
+//	of pixels
 func RecordPattern(row *gozxing.BitArray, start int, counters []int) error {
 	numCounters := len(counters)
 	for i := range counters {
@@ -255,7 +347,7 @@ func RecordPatternInReverse(row *gozxing.BitArray, start int, counters []int) er
 	return RecordPattern(row, start+1, counters)
 }
 
-//PatternMatchVariance Determines how closely a set of observed counts of runs of
+// PatternMatchVariance Determines how closely a set of observed counts of runs of
 // black/white values matches a given target pattern.
 // This is reported as the ratio of the total variance from the expected pattern
 // proportions across all pattern elements, to the length of the pattern.

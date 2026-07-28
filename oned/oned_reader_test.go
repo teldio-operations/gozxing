@@ -7,6 +7,7 @@ import (
 	errors "golang.org/x/xerrors"
 
 	"github.com/teldio-operations/gozxing"
+	"github.com/teldio-operations/gozxing/testutil"
 )
 
 func TestRecordPattern(t *testing.T) {
@@ -157,10 +158,8 @@ func TestOneDReader_doDecode(t *testing.T) {
 	src = newTestBitSource(10,
 		"000010101001110010001000010101110010101011000101011110110010010011001010000")
 	bmp, _ = gozxing.NewBinaryBitmap(gozxing.NewGlobalHistgramBinarizer(src))
-	r, e := reader.doDecode(bmp, hints)
-	if e != nil {
-		t.Fatalf("doDecode returns error, %v", e)
-	}
+	rs, e := reader.doDecode(bmp, hints)
+	r := testutil.OneResult(t, rs, e)
 	if txt := r.GetText(); txt != "12345670" {
 		t.Fatalf("doDecode text = \"%v\", expect \"12345670\"", txt)
 	}

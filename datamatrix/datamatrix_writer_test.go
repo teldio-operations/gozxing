@@ -201,10 +201,8 @@ func TestDataMatrixWriter_Encode(t *testing.T) {
 	}
 	bmp := testutil.NewBinaryBitmapFromBitMatrix(b)
 	reader := NewDataMatrixReader()
-	result, e := reader.DecodeWithoutHints(bmp)
-	if e != nil {
-		t.Fatalf("Decode returns error: %v", e)
-	}
+	results, e := reader.DecodeWithoutHints(bmp)
+	result := testutil.OneResult(t, results, e)
 	if txt := result.GetText(); txt != contents {
 		t.Fatalf("result = \"%v\", expect \"%v\"", txt, contents)
 	}

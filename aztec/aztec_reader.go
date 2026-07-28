@@ -19,8 +19,18 @@ func NewAztecReader() *AztecReader {
 	return &AztecReader{}
 }
 
-func (r *AztecReader) DecodeWithoutHints(image *gozxing.BinaryBitmap) (*gozxing.Result, error) {
+func (r *AztecReader) DecodeWithoutHints(image *gozxing.BinaryBitmap) ([]*gozxing.Result, error) {
 	return r.Decode(image, nil)
+}
+
+// Decode reads the single Aztec code in the image. The detector locates at most one symbol,
+// so the slice never has more than one element.
+func (r *AztecReader) Decode(image *gozxing.BinaryBitmap, hints map[gozxing.DecodeHintType]interface{}) ([]*gozxing.Result, error) {
+	result, e := r.decodeSingle(image, hints)
+	if e != nil {
+		return nil, e
+	}
+	return []*gozxing.Result{result}, nil
 }
 
 // Decode : Locates and decodes a Data Matrix code in an image.
@@ -29,7 +39,7 @@ func (r *AztecReader) DecodeWithoutHints(image *gozxing.BinaryBitmap) (*gozxing.
 // @throws NotFoundException if a Data Matrix code cannot be found
 // @throws FormatException if a Data Matrix code cannot be decoded
 //
-func (r *AztecReader) Decode(image *gozxing.BinaryBitmap, hints map[gozxing.DecodeHintType]interface{}) (*gozxing.Result, error) {
+func (r *AztecReader) decodeSingle(image *gozxing.BinaryBitmap, hints map[gozxing.DecodeHintType]interface{}) (*gozxing.Result, error) {
 
 	var notFoundException error
 	var formatException error

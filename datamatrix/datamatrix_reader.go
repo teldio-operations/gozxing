@@ -23,8 +23,18 @@ func NewDataMatrixReader() *DataMatrixReader {
 	}
 }
 
-func (r *DataMatrixReader) DecodeWithoutHints(image *gozxing.BinaryBitmap) (*gozxing.Result, error) {
+func (r *DataMatrixReader) DecodeWithoutHints(image *gozxing.BinaryBitmap) ([]*gozxing.Result, error) {
 	return r.Decode(image, nil)
+}
+
+// Decode reads the single Data Matrix code in the image. The detector locates at most one
+// symbol, so the slice never has more than one element.
+func (r *DataMatrixReader) Decode(image *gozxing.BinaryBitmap, hints map[gozxing.DecodeHintType]interface{}) ([]*gozxing.Result, error) {
+	result, e := r.decodeSingle(image, hints)
+	if e != nil {
+		return nil, e
+	}
+	return []*gozxing.Result{result}, nil
 }
 
 // Decode Locates and decodes a Data Matrix code in an image.
@@ -34,7 +44,7 @@ func (r *DataMatrixReader) DecodeWithoutHints(image *gozxing.BinaryBitmap) (*goz
 // @throws FormatException if a Data Matrix code cannot be decoded
 // @throws ChecksumException if error correction fails
 //
-func (r *DataMatrixReader) Decode(image *gozxing.BinaryBitmap, hints map[gozxing.DecodeHintType]interface{}) (*gozxing.Result, error) {
+func (r *DataMatrixReader) decodeSingle(image *gozxing.BinaryBitmap, hints map[gozxing.DecodeHintType]interface{}) (*gozxing.Result, error) {
 	var decoderResult *common.DecoderResult
 	var points []gozxing.ResultPoint
 	if _, ok := hints[gozxing.DecodeHintType_PURE_BARCODE]; ok {

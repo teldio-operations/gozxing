@@ -52,10 +52,8 @@ func TestUPCAReader_DecodeRow(t *testing.T) {
 func TestUPCAReader_DecodeWithoutHint(t *testing.T) {
 	bmp := testutil.NewBinaryBitmapFromFile("testdata/upca/2.png")
 
-	result, e := NewUPCAReader().DecodeWithoutHints(bmp)
-	if e != nil {
-		t.Fatalf("DecodeWithoutHints returns error, %v", e)
-	}
+	results, e := NewUPCAReader().DecodeWithoutHints(bmp)
+	result := testutil.OneResult(t, results, e)
 	if format := result.GetBarcodeFormat(); format != gozxing.BarcodeFormat_UPC_A {
 		t.Fatalf("DecodeWithoutHints format = %v, expect UPC_A", format)
 	}
