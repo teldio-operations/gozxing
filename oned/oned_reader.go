@@ -265,14 +265,14 @@ func (this *OneDReader) repeatsOnAdjacentRow(image *gozxing.BinaryBitmap, rowNum
 		if neighbor < 0 || neighbor >= height {
 			continue
 		}
-		row, e := image.GetBlackRow(neighbor, row)
+		read, e := image.GetBlackRow(neighbor, row)
 		if e != nil {
 			continue
 		}
 		if reversed {
-			row.Reverse()
+			read.Reverse()
 		}
-		result, e := this.DecodeRow(neighbor, row, hints)
+		result, e := this.DecodeRow(neighbor, read, hints)
 		if e != nil {
 			continue
 		}
