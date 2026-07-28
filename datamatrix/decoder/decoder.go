@@ -1,9 +1,9 @@
 package decoder
 
 import (
-	"github.com/makiuchi-d/gozxing"
-	"github.com/makiuchi-d/gozxing/common"
-	"github.com/makiuchi-d/gozxing/common/reedsolomon"
+	"github.com/teldio-operations/gozxing"
+	"github.com/teldio-operations/gozxing/common"
+	"github.com/teldio-operations/gozxing/common/reedsolomon"
 )
 
 // Decoder The main class which implements Data Matrix Code decoding

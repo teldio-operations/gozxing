@@ -3,7 +3,7 @@ package encoder
 import (
 	"testing"
 
-	"github.com/makiuchi-d/gozxing"
+	"github.com/teldio-operations/gozxing"
 )
 
 func TestDefaultPlacement_module(t *testing.T) {

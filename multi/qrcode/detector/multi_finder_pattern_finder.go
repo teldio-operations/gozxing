@@ -4,8 +4,8 @@ import (
 	"math"
 	"sort"
 
-	"github.com/makiuchi-d/gozxing"
-	"github.com/makiuchi-d/gozxing/qrcode/detector"
+	"github.com/teldio-operations/gozxing"
+	"github.com/teldio-operations/gozxing/qrcode/detector"
 )
 
 // This class attempts to find finder patterns in a QR Code.

@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/makiuchi-d/gozxing"
+	"github.com/teldio-operations/gozxing"
 )
 
 func makeAlignPattern(image *gozxing.BitMatrix, x, y int) {

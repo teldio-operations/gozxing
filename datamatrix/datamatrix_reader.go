@@ -3,10 +3,10 @@ package datamatrix
 import (
 	"strconv"
 
-	"github.com/makiuchi-d/gozxing"
-	"github.com/makiuchi-d/gozxing/common"
-	"github.com/makiuchi-d/gozxing/datamatrix/decoder"
-	"github.com/makiuchi-d/gozxing/datamatrix/detector"
+	"github.com/teldio-operations/gozxing"
+	"github.com/teldio-operations/gozxing/common"
+	"github.com/teldio-operations/gozxing/datamatrix/decoder"
+	"github.com/teldio-operations/gozxing/datamatrix/detector"
 )
 
 var (

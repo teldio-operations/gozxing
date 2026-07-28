@@ -6,6 +6,16 @@
 [ZXing](https://github.com/zxing/zxing) is an open-source, multi-format 1D/2D barcode image processing library for Java.
 This project is a port of ZXing core library to pure Go.
 
+## About this fork
+
+This is Teldio's fork of [makiuchi-d/gozxing](https://github.com/makiuchi-d/gozxing). Import it as:
+
+```Go
+import "github.com/teldio-operations/gozxing"
+```
+
+The two badges above report the state of the upstream project, not of this fork.
+
 ## Porting Status (supported formats)
 
 ### 2D barcodes
@@ -65,8 +75,8 @@ import (
 	_ "image/jpeg"
 	"os"
 
-	"github.com/makiuchi-d/gozxing"
-	"github.com/makiuchi-d/gozxing/qrcode"
+	"github.com/teldio-operations/gozxing"
+	"github.com/teldio-operations/gozxing/qrcode"
 )
 
 func main() {
@@ -94,8 +104,8 @@ import (
 	"image/png"
 	"os"
 
-	"github.com/makiuchi-d/gozxing"
-	"github.com/makiuchi-d/gozxing/oned"
+	"github.com/teldio-operations/gozxing"
+	"github.com/teldio-operations/gozxing/oned"
 )
 
 func main() {
@@ -174,8 +184,8 @@ import (
     "image/jpeg"
     "sync"
     
-    "github.com/makiuchi-d/gozxing"
-    "github.com/makiuchi-d/gozxing/qrcode"
+    "github.com/teldio-operations/gozxing"
+    "github.com/teldio-operations/gozxing/qrcode"
 )
 
 type QRResult struct {

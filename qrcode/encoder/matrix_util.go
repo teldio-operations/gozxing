@@ -5,8 +5,8 @@ import (
 
 	errors "golang.org/x/xerrors"
 
-	"github.com/makiuchi-d/gozxing"
-	"github.com/makiuchi-d/gozxing/qrcode/decoder"
+	"github.com/teldio-operations/gozxing"
+	"github.com/teldio-operations/gozxing/qrcode/decoder"
 )
 
 var (

@@ -3,8 +3,8 @@ package qrcode
 import (
 	"testing"
 
-	"github.com/makiuchi-d/gozxing"
-	"github.com/makiuchi-d/gozxing/testutil"
+	"github.com/teldio-operations/gozxing"
+	"github.com/teldio-operations/gozxing/testutil"
 )
 
 func TestNewQRCodeReader(t *testing.T) {
