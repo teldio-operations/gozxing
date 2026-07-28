@@ -106,6 +106,64 @@ func TestOneDReaderMultipleBarcodes(t *testing.T) {
 	}
 }
 
+// TestOneDReaderSingleBarcodePerImage reads every image of testdata and expects at most one
+// barcode. Each of those images is a photo or a drawing of one barcode, so a second result means
+// the reader misread a row.
+//
+// The per-format tests already assert the text of 154 of these images. This one also covers the
+// six that upstream zxing cannot read, where the reader has to find nothing rather than find
+// something wrong, and it runs with and without TRY_HARDER.
+func TestOneDReaderSingleBarcodePerImage(t *testing.T) {
+	harder := map[gozxing.DecodeHintType]interface{}{gozxing.DecodeHintType_TRY_HARDER: true}
+
+	// These images do hold, or do read as, more than one barcode.
+	knownMultiple := map[string]string{
+		// Two photos of the same kind of label, each of which caught the label below it as
+		// well. The lower barcode of both reads what the label prints above it.
+		// TestCode39Reader asserts the two texts of 08.png.
+		"testdata/code39/02.png": "a second label at the bottom edge, 001EC947D49B",
+		"testdata/code39/08.png": "a second label at the bottom edge, 001EC9476B0A",
+
+		// Glare washes out the right half of this barcode, and upstream zxing cannot read it.
+		// The reader reports two candidates that both pass the check digit: 070097026788, which
+		// is what it read before it could return more than one and is wrong, and 070097025088,
+		// which is what the label prints.
+		"testdata/upca/4.png": "one misread and one correct read of a damaged barcode",
+	}
+
+	for _, set := range multipleSets {
+		t.Run(set.name, func(t *testing.T) {
+			dir := filepath.Join("testdata", set.dir)
+			for _, file := range listPNGs(t, dir) {
+				path := filepath.Join(dir, file)
+				if reason, ok := knownMultiple[filepath.ToSlash(path)]; ok {
+					t.Logf("skipping %v: %v", path, reason)
+					continue
+				}
+				img := readPNG(t, path)
+				for _, hints := range []map[gozxing.DecodeHintType]interface{}{nil, harder} {
+					bmp, e := gozxing.NewBinaryBitmapFromImage(img)
+					if e != nil {
+						t.Fatalf("NewBinaryBitmapFromImage(%v) failed: %v", path, e)
+					}
+					results, e := set.reader().Decode(bmp, hints)
+					if e != nil {
+						continue // nothing found, which the per-format tests cover
+					}
+					if len(results) > 1 {
+						texts := make([]string, len(results))
+						for i, result := range results {
+							texts[i] = result.GetText()
+						}
+						t.Errorf("Decode(%v, tryHarder=%v) = %q, wants one barcode",
+							path, hints != nil, texts)
+					}
+				}
+			}
+		})
+	}
+}
+
 type multipleSource struct {
 	file  string
 	text  string
