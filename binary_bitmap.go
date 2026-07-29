@@ -11,6 +11,10 @@ type BinaryBitmap struct {
 	matrix    *BitMatrix
 	once      sync.Once
 	matrixErr error
+
+	rotateOnce sync.Once
+	rotated    *BinaryBitmap
+	rotatedErr error
 }
 
 func NewBinaryBitmap(binarizer Binarizer) (*BinaryBitmap, error) {
@@ -65,12 +69,18 @@ func (this *BinaryBitmap) IsRotateSupported() bool {
 	return this.binarizer.GetLuminanceSource().IsRotateSupported()
 }
 
+// The turned image is made once and then shared, the way GetBlackMatrix is, so it lives as long as
+// the bitmap it came from.
 func (this *BinaryBitmap) RotateCounterClockwise() (*BinaryBitmap, error) {
-	newSource, e := this.binarizer.GetLuminanceSource().RotateCounterClockwise()
-	if e != nil {
-		return nil, e
-	}
-	return NewBinaryBitmap(this.binarizer.CreateBinarizer(newSource))
+	this.rotateOnce.Do(func() {
+		newSource, e := this.binarizer.GetLuminanceSource().RotateCounterClockwise()
+		if e != nil {
+			this.rotatedErr = e
+			return
+		}
+		this.rotated, this.rotatedErr = NewBinaryBitmap(this.binarizer.CreateBinarizer(newSource))
+	})
+	return this.rotated, this.rotatedErr
 }
 
 func (this *BinaryBitmap) RotateCounterClockwise45() (*BinaryBitmap, error) {

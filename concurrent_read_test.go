@@ -53,6 +53,46 @@ func TestConcurrentGetBlackMatrix(t *testing.T) {
 	}
 }
 
+// TestRotateCounterClockwiseCached checks that turning an image is done once and shared. Several
+// readers of one image each turn it when they cannot read it the right way up, and the turned copy
+// holds the pixels of the image all over again.
+func TestRotateCounterClockwiseCached(t *testing.T) {
+	bmp := testutil.NewBinaryBitmapFromFile("oned/testdata/code128/01.png")
+
+	first, e := bmp.RotateCounterClockwise()
+	if e != nil {
+		t.Fatalf("RotateCounterClockwise: %v", e)
+	}
+	second, e := bmp.RotateCounterClockwise()
+	if e != nil {
+		t.Fatalf("RotateCounterClockwise: %v", e)
+	}
+	if first != second {
+		t.Fatal("RotateCounterClockwise turned the image twice, wants the same one back")
+	}
+	if first.GetWidth() != bmp.GetHeight() || first.GetHeight() != bmp.GetWidth() {
+		t.Fatalf("turned image is %vx%v, wants %vx%v",
+			first.GetWidth(), first.GetHeight(), bmp.GetHeight(), bmp.GetWidth())
+	}
+
+	turned := make([]*gozxing.BinaryBitmap, 8)
+	var wg sync.WaitGroup
+	for worker := range turned {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			turned[worker], _ = bmp.RotateCounterClockwise()
+		}(worker)
+	}
+	wg.Wait()
+
+	for worker, t2 := range turned {
+		if t2 != first {
+			t.Fatalf("worker %v got a different turned image", worker)
+		}
+	}
+}
+
 // TestConcurrentReadersOneBitmap runs several readers over one bitmap at the same time, which is
 // what a caller does to read an image that may hold barcodes of more than one format. Each reader
 // has to report what it reports on its own.
