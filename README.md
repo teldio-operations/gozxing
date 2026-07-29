@@ -16,6 +16,31 @@ import "github.com/teldio-operations/gozxing"
 
 The two badges above report the state of the upstream project, not of this fork.
 
+### What this fork changes
+
+**`Reader.Decode` returns every barcode in the image.** It returns a `[]*Result` rather than a
+single `*Result`, and it is a breaking change: a caller that wants one barcode reads element 0.
+Upstream stopped at the first barcode it found, so a photo of a shelf, a box of labels, or a page
+of QR codes gave one result no matter how many it held.
+
+- The readers in `oned` scan the whole image and read barcodes stacked down it or laid out side by
+  side, and report them from the top of the image down. See
+  [Scanning several barcodes in one image](#scanning-several-barcodes-in-one-image).
+- `qrcode.QRCodeReader` reads every QR code in the image. Upstream needed a second reader type from
+  a separate `multi` package for that, and this fork has no `multi` package: `Reader.Decode`
+  returns a list, so a second interface earned nothing. `multi.MultipleBarcodeReader` and
+  `multi/qrcode.QRCodeMultiReader` are gone, and `multi/qrcode/detector` moved to
+  `qrcode/detector`.
+- The Aztec and Data Matrix readers return at most one result. Their detectors find one symbol per
+  image, so one is all they can find.
+
+**Reading a barcode that is not the first one found is stricter.** The first barcode of an image is
+reported as upstream reported it. Every barcode after that has to read the same on an adjacent row
+before it counts, which keeps a misread of one blurred or noisy row out of the results. Scanning
+more of an image finds more real barcodes, and it also finds more ways to be wrong.
+
+**A `BinaryBitmap` is safe to share between goroutines.** See [Thread Safety](#thread-safety).
+
 ## Porting Status (supported formats)
 
 ### 2D barcodes
@@ -146,7 +171,35 @@ func main() {
 
 ## Thread Safety
 
-Starting from version v0.1.2, BinaryBitmap and HybridBinarizer are thread-safe for concurrent access. Multiple goroutines can safely call GetBlackMatrix() on the same instance without external synchronization.
+A `BinaryBitmap` is safe to share between goroutines. Several goroutines may call `GetBlackMatrix`
+and `GetBlackRow` on one instance with no locking of their own. `GetBlackMatrix` works the matrix
+out once and hands the same one to every caller after that.
+
+Upstream v0.1.2 made `GetBlackMatrix` safe to share. This fork extends that to `GetBlackRow`, which
+is the one the 1D readers use: `GlobalHistogramBinarizer` kept the luminance row and its histogram
+on itself, so two goroutines reading rows of the same image wrote over each other's working memory.
+Each read now borrows that memory from a pool.
+
+**A `Reader` is not safe to share.** The readers keep working memory of their own between rows, so
+give each goroutine a reader of its own. One `BinaryBitmap` and one reader per goroutine is the
+combination to aim for: the bitmap holds the pixels and the black-and-white of the image, which is
+the expensive part and worth sharing, while a reader is cheap to build.
+
+```Go
+// Read one image with several readers at once.
+bmp, _ := gozxing.NewBinaryBitmapFromImage(img)
+
+var wg sync.WaitGroup
+found := make([][]*gozxing.Result, len(formats))
+for i, newReader := range formats {
+    wg.Add(1)
+    go func(i int, reader gozxing.Reader) {
+        defer wg.Done()
+        found[i], _ = reader.Decode(bmp, nil) // one reader per goroutine, one shared bitmap
+    }(i, newReader())
+}
+wg.Wait()
+```
 
 ### Why This Matters
 

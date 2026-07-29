@@ -1,23 +1,44 @@
 package gozxing
 
+import "sync"
+
 const (
 	LUMINANCE_BITS    = 5
 	LUMINANCE_SHIFT   = 8 - LUMINANCE_BITS
 	LUMINANCE_BUCKETS = 1 << LUMINANCE_BITS
 )
 
-type GlobalHistogramBinarizer struct {
-	source     LuminanceSource
+// rowScratch is the working memory of one read. A binarizer lends one out per call rather than
+// keeping a single set on itself, so that two goroutines reading rows of the same image do not
+// write over each other.
+type rowScratch struct {
 	luminances []byte
 	buckets    []int
 }
 
+type GlobalHistogramBinarizer struct {
+	source  LuminanceSource
+	scratch sync.Pool
+}
+
 func NewGlobalHistgramBinarizer(source LuminanceSource) Binarizer {
-	return &GlobalHistogramBinarizer{
-		source:     source,
-		luminances: []byte{},
-		buckets:    make([]int, LUMINANCE_BUCKETS),
+	binarizer := &GlobalHistogramBinarizer{source: source}
+	binarizer.scratch.New = func() interface{} {
+		return &rowScratch{buckets: make([]int, LUMINANCE_BUCKETS)}
 	}
+	return binarizer
+}
+
+// takeScratch borrows working memory that holds a row of the given width, with a zeroed histogram.
+func (this *GlobalHistogramBinarizer) takeScratch(width int) *rowScratch {
+	scratch := this.scratch.Get().(*rowScratch)
+	if len(scratch.luminances) < width {
+		scratch.luminances = make([]byte, width)
+	}
+	for i := range scratch.buckets {
+		scratch.buckets[i] = 0
+	}
+	return scratch
 }
 
 func (this *GlobalHistogramBinarizer) GetLuminanceSource() LuminanceSource {
@@ -41,12 +62,14 @@ func (this *GlobalHistogramBinarizer) GetBlackRow(y int, row *BitArray) (*BitArr
 		row.Clear()
 	}
 
-	this.initArrays(width)
-	localLuminances, e := source.GetRow(y, this.luminances)
+	scratch := this.takeScratch(width)
+	defer this.scratch.Put(scratch)
+
+	localLuminances, e := source.GetRow(y, scratch.luminances)
 	if e != nil {
 		return nil, e
 	}
-	localBuckets := this.buckets
+	localBuckets := scratch.buckets
 	for x := 0; x < width; x++ {
 		localBuckets[(localLuminances[x]&0xff)>>LUMINANCE_SHIFT]++
 	}
@@ -89,11 +112,13 @@ func (this *GlobalHistogramBinarizer) GetBlackMatrix() (*BitMatrix, error) {
 
 	// Quickly calculates the histogram by sampling four rows from the image. This proved to be
 	// more robust on the blackbox tests than sampling a diagonal as we used to do.
-	this.initArrays(width)
-	localBuckets := this.buckets
+	scratch := this.takeScratch(width)
+	defer this.scratch.Put(scratch)
+
+	localBuckets := scratch.buckets
 	for y := 1; y < 5; y++ {
 		row := height * y / 5
-		localLuminances, _ := source.GetRow(row, this.luminances)
+		localLuminances, _ := source.GetRow(row, scratch.luminances)
 		right := (width * 4) / 5
 		for x := width / 5; x < right; x++ {
 			pixel := localLuminances[x] & 0xff
@@ -124,15 +149,6 @@ func (this *GlobalHistogramBinarizer) GetBlackMatrix() (*BitMatrix, error) {
 
 func (this *GlobalHistogramBinarizer) CreateBinarizer(source LuminanceSource) Binarizer {
 	return NewGlobalHistgramBinarizer(source)
-}
-
-func (this *GlobalHistogramBinarizer) initArrays(luminanceSize int) {
-	if len(this.luminances) < luminanceSize {
-		this.luminances = make([]byte, luminanceSize)
-	}
-	for x := 0; x < LUMINANCE_BUCKETS; x++ {
-		this.buckets[x] = 0
-	}
 }
 
 func (this *GlobalHistogramBinarizer) estimateBlackPoint(buckets []int) (int, error) {
