@@ -18,14 +18,12 @@ func TestConcurrentGetBlackRow(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for worker := 0; worker < 8; worker++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			row := gozxing.NewBitArray(bmp.GetWidth())
 			for y := 0; y < height; y++ {
 				bmp.GetBlackRow(y, row)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -37,11 +35,9 @@ func TestConcurrentGetBlackMatrix(t *testing.T) {
 	matrices := make([]*gozxing.BitMatrix, 8)
 	var wg sync.WaitGroup
 	for worker := range matrices {
-		wg.Add(1)
-		go func(worker int) {
-			defer wg.Done()
+		wg.Go(func() {
 			matrices[worker], _ = bmp.GetBlackMatrix()
-		}(worker)
+		})
 	}
 	wg.Wait()
 
@@ -78,11 +74,9 @@ func TestRotateCounterClockwiseCached(t *testing.T) {
 	turned := make([]*gozxing.BinaryBitmap, 8)
 	var wg sync.WaitGroup
 	for worker := range turned {
-		wg.Add(1)
-		go func(worker int) {
-			defer wg.Done()
+		wg.Go(func() {
 			turned[worker], _ = bmp.RotateCounterClockwise()
-		}(worker)
+		})
 	}
 	wg.Wait()
 
@@ -127,14 +121,12 @@ func TestConcurrentReadersOneBitmap(t *testing.T) {
 	together := make([]string, len(readers()))
 	var wg sync.WaitGroup
 	for i, reader := range readers() {
-		wg.Add(1)
-		go func(i int, reader gozxing.Reader) {
-			defer wg.Done()
+		wg.Go(func() {
 			results, e := reader.Decode(shared, nil)
 			if e == nil && len(results) > 0 {
 				together[i] = results[0].GetText()
 			}
-		}(i, reader)
+		})
 	}
 	wg.Wait()
 

@@ -1,6 +1,6 @@
 module github.com/teldio-operations/gozxing
 
-go 1.17
+go 1.25
 
 require (
 	golang.org/x/text v0.3.7
